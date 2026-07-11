@@ -1,0 +1,61 @@
+:root {
+  --paper: #ECEDE6;
+  --card: #FFFFFF;
+  --ink: #202A22;
+  --ink-soft: #5B6560;
+  --hairline: #D8D6C9;
+  --brass: #8A6A24;
+  --rust: #B8481E;
+  --amber: #B9790C;
+  --slate: #3E5A82;
+  --moss: #3F6B44;
+  --moss-bg: #E4EEE2;
+  --rust-bg: #F7E4DC;
+  --amber-bg: #F6E7CE;
+  --slate-bg: #E3E9F1;
+
+  --f-display: "Space Grotesk", sans-serif;
+  --f-body: "IBM Plex Sans", sans-serif;
+  --f-mono: "IBM Plex Mono", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--f-body);
+}
+
+input, textarea, select, button {
+  font-family: var(--f-body);
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: 2px solid var(--brass);
+  outline-offset: 1px;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 1px;
+}
+
+button {
+  cursor: pointer;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}

@@ -1,0 +1,50 @@
+name: Keep Supabase project awake
+
+# Supabase free-tier projects pause after 7 days with no API requests.
+# This pings a lightweight read-only endpoint once a week so the project
+# never goes idle. Uses the public anon key only - never the service role
+# key - since all this needs to do is prove the project is "in use".
+#
+# Setup (one-time):
+#   Repo Settings > Secrets and variables > Actions > New repository secret
+#     SUPABASE_URL       = https://YOUR-PROJECT-REF.supabase.co
+#     SUPABASE_ANON_KEY  = your anon public key
+#
+# You can also trigger it manually from the Actions tab (workflow_dispatch)
+# to confirm it's wired up correctly right after setup.
+
+on:
+  schedule:
+    # Every Monday at 06:00 UTC. GitHub may delay scheduled runs by a few
+    # minutes to hours under load, which is fine for this purpose - it just
+    # needs to land well within the 7-day pause window.
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST endpoint
+        run: |
+          if [ -z "${{ secrets.SUPABASE_URL }}" ] || [ -z "${{ secrets.SUPABASE_ANON_KEY }}" ]; then
+            echo "Missing SUPABASE_URL or SUPABASE_ANON_KEY repo secret. See workflow comments for setup." >&2
+            exit 1
+          fi
+
+          http_status=$(curl -s -o /tmp/response.txt -w "%{http_code}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/profiles?select=id&limit=1" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}")
+
+          echo "HTTP status: $http_status"
+          cat /tmp/response.txt
+
+          # 200 = success. 401/403 is still fine here - it means the request
+          # reached the project and RLS correctly blocked an unauthenticated
+          # read, which still counts as activity. Anything else likely means
+          # the URL/key is wrong or the project is unreachable.
+          if [ "$http_status" != "200" ] && [ "$http_status" != "401" ] && [ "$http_status" != "403" ]; then
+            echo "Unexpected response from Supabase - check SUPABASE_URL / SUPABASE_ANON_KEY." >&2
+            exit 1
+          fi
