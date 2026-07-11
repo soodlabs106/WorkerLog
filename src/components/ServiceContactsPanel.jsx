@@ -292,6 +292,11 @@ export default function ServiceContactsPanel({ contacts, canEdit, onSave, saving
     draft.filter((contact) => serviceFilter === "all" || contact.service === serviceFilter)
   ), [draft, serviceFilter]);
 
+  async function persistChanges(nextDraft, nextRemovedIds) {
+    setLocalError("");
+    await onSave({ contacts: nextDraft, removedIds: nextRemovedIds });
+  }
+
   function openAddModal() {
     setEditingContact(blankContact());
     setLocalError("");
@@ -306,7 +311,7 @@ export default function ServiceContactsPanel({ contacts, canEdit, onSave, saving
     setEditingContact(null);
   }
 
-  function confirmModal() {
+  async function confirmModal() {
     const normalized = {
       ...editingContact,
       service: editingContact.service.trim(),
@@ -321,21 +326,25 @@ export default function ServiceContactsPanel({ contacts, canEdit, onSave, saving
       return;
     }
 
-    setDraft((current) => {
-      if (current.some((contact) => contact.id === normalized.id)) {
-        return current.map((contact) => (contact.id === normalized.id ? normalized : contact));
-      }
-      return [...current, normalized];
-    });
+    const nextDraft = draft.some((contact) => contact.id === normalized.id)
+      ? draft.map((contact) => (contact.id === normalized.id ? normalized : contact))
+      : [...draft, normalized];
+
+    setDraft(nextDraft);
     setEditingContact(null);
     setLocalError("");
+    await persistChanges(nextDraft, removedIds);
   }
 
-  function deleteContact(contact) {
-    setDraft((current) => current.filter((entry) => entry.id !== contact.id));
-    if (!contact.isNew && !String(contact.id).startsWith("new-")) {
-      setRemovedIds((current) => [...new Set([...current, contact.id])]);
-    }
+  async function deleteContact(contact) {
+    const nextDraft = draft.filter((entry) => entry.id !== contact.id);
+    const nextRemovedIds = !contact.isNew && !String(contact.id).startsWith("new-")
+      ? [...new Set([...removedIds, contact.id])]
+      : removedIds;
+
+    setDraft(nextDraft);
+    setRemovedIds(nextRemovedIds);
+    await persistChanges(nextDraft, nextRemovedIds);
   }
 
   async function handleSave() {
