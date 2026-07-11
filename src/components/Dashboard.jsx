@@ -5,6 +5,13 @@ import {
 import { StatCard } from "./Shared";
 import { CATEGORIES } from "../lib/format";
 
+const CATEGORY_COLORS = {
+  plumbing: "#3E6B8A",
+  electrical: "#C8872F",
+  pest: "#5D7E53",
+  general: "#7A6A92",
+};
+
 function monthValue(dateString) {
   const date = new Date(dateString);
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -147,8 +154,8 @@ export default function Dashboard({ issues, loading, error }) {
               <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "var(--ink-soft)" }} axisLine={false} tickLine={false} />
               <Tooltip contentStyle={{ fontSize: 12, borderRadius: 6, border: "1px solid var(--hairline)" }} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="open" name="Open" stackId="tickets" fill="#B45B4E" radius={[4, 4, 0, 0]} maxBarSize={22} />
-              <Bar dataKey="resolved" name="Resolved" stackId="tickets" fill="#567A5E" radius={[4, 4, 0, 0]} maxBarSize={22} />
+              <Bar dataKey="open" name="Open" stackId="tickets" fill="#B45B4E" radius={[0, 0, 0, 0]} maxBarSize={22} barGap={0} />
+              <Bar dataKey="resolved" name="Resolved" stackId="tickets" fill="#567A5E" radius={[4, 4, 0, 0]} maxBarSize={22} barGap={0} />
             </BarChart>
           </ResponsiveContainer>
         )}
@@ -168,7 +175,7 @@ export default function Dashboard({ issues, loading, error }) {
               <YAxis type="category" dataKey="name" width={78} tick={{ fontSize: 11, fill: "var(--ink)" }} axisLine={false} tickLine={false} />
               <Tooltip formatter={(v, n, p) => [`${v}h avg (${p.payload.n} closed)`, "Fix time"]} contentStyle={{ fontSize: 12, borderRadius: 6, border: "1px solid var(--hairline)" }} />
               <Bar dataKey="hours" radius={[0, 4, 4, 0]} maxBarSize={20}>
-                {avgFixByType.map((entry) => <Cell key={entry.key} fill={entry.key === selectedCategory ? "#8A6A24" : "#3E5A82"} />)}
+                {avgFixByType.map((entry) => <Cell key={entry.key} fill={CATEGORY_COLORS[entry.key] || "#3E5A82"} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
