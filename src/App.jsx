@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { isVillaProfile, profileLabel } from "./lib/profiles";
@@ -22,46 +22,77 @@ export default function App() {
   const [residents, setResidents] = useState([]);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [error, setError] = useState("");
+  const activeLoadRef = useRef(0);
+  const lastLoadedUserRef = useRef("");
+
+  const withTimeout = useCallback((promise, message, ms = 12000) => (
+    Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ])
+  ), []);
 
   const loadProfileAndResidents = useCallback(async (userId) => {
+    const loadId = activeLoadRef.current + 1;
+    activeLoadRef.current = loadId;
     setLoadingProfile(true);
     setError("");
 
-    const { data: profileData, error: profileError } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .single();
+    try {
+      const { data: profileData, error: profileError } = await withTimeout(
+        supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", userId)
+          .single(),
+        "Timed out while loading your account profile. Please retry in a moment."
+      );
 
-    if (profileError || !profileData) {
-      setError("Could not find a profile for this account. Run the updated schema and seed script first.");
-      setLoadingProfile(false);
-      return;
-    }
+      if (loadId !== activeLoadRef.current) return;
 
-    if (!isVillaProfile(profileData) || !profileData.villa_number) {
+      if (profileError || !profileData) {
+        setError("Could not find a profile for this account. Run the updated schema and seed script first.");
+        setLoadingProfile(false);
+        return;
+      }
+
+      if (!isVillaProfile(profileData) || !profileData.villa_number) {
+        lastLoadedUserRef.current = userId;
+        setProfile(profileData);
+        setResidents([]);
+        setLoadingProfile(false);
+        return;
+      }
+
+      const { data: residentsData, error: residentsError } = await withTimeout(
+        supabase
+          .from("residents")
+          .select("*")
+          .eq("villa_number", profileData.villa_number)
+          .order("id", { ascending: true }),
+        "Timed out while loading residents for this account. Please retry in a moment."
+      );
+
+      if (loadId !== activeLoadRef.current) return;
+
+      if (residentsError) {
+        setError(residentsError.message);
+        setLoadingProfile(false);
+        return;
+      }
+
+      lastLoadedUserRef.current = userId;
       setProfile(profileData);
-      setResidents([]);
+      setResidents(residentsData || []);
       setLoadingProfile(false);
-      return;
-    }
-
-    const { data: residentsData, error: residentsError } = await supabase
-      .from("residents")
-      .select("*")
-      .eq("villa_number", profileData.villa_number)
-      .order("id", { ascending: true });
-
-    if (residentsError) {
-      setError(residentsError.message);
+    } catch (loadError) {
+      if (loadId !== activeLoadRef.current) return;
+      setError(loadError.message || "Could not load your account.");
       setLoadingProfile(false);
-      return;
     }
-
-    setProfile(profileData);
-    setResidents(residentsData || []);
-    setLoadingProfile(false);
-  }, []);
+  }, [withTimeout]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: nextSession } }) => {
@@ -70,13 +101,25 @@ export default function App() {
       if (nextSession) loadProfileAndResidents(nextSession.user.id);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
-      if (nextSession) {
-        loadProfileAndResidents(nextSession.user.id);
-      } else {
+
+      if (event === "SIGNED_OUT" || !nextSession) {
+        activeLoadRef.current += 1;
+        lastLoadedUserRef.current = "";
         setProfile(null);
         setResidents([]);
+        setLoadingProfile(false);
+        return;
+      }
+
+      const shouldReloadProfile =
+        event === "SIGNED_IN" ||
+        event === "USER_UPDATED" ||
+        lastLoadedUserRef.current !== nextSession.user.id;
+
+      if (shouldReloadProfile) {
+        loadProfileAndResidents(nextSession.user.id);
       }
     });
 

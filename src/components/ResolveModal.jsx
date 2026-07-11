@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 import { ticketNo } from "../lib/format";
 import { Field, inputStyle } from "./Shared";
 
-export default function ResolveModal({ issue, notes, setNotes, worker, setWorker, pin, setPin, requirePin, onCancel, onConfirm, error }) {
+export default function ResolveModal({ issue, notes, setNotes, worker, setWorker, workerOptions, pin, setPin, requirePin, onCancel, onConfirm, error }) {
   return (
     <div style={{
       position: "fixed", inset: 0, background: "rgba(32,42,34,0.45)", display: "flex",
@@ -23,7 +23,18 @@ export default function ResolveModal({ issue, notes, setNotes, worker, setWorker
         </div>
 
         <Field label="Worker / vendor (optional)">
-          <input value={worker} onChange={(e) => setWorker(e.target.value)} placeholder="Ramesh (plumber)" style={inputStyle} />
+          {workerOptions?.length ? (
+            <select value={worker} onChange={(e) => setWorker(e.target.value)} style={inputStyle}>
+              <option value="">Select contact</option>
+              {workerOptions.map((contact) => (
+                <option key={contact.id} value={contact.name}>
+                  {contact.role} - {contact.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input value={worker} onChange={(e) => setWorker(e.target.value)} placeholder="Ramesh (plumber)" style={inputStyle} />
+          )}
         </Field>
         <Field label="Resolution note (optional)">
           <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Replaced washer, checked for leaks" style={{ ...inputStyle, resize: "vertical" }} />

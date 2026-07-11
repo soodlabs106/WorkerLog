@@ -68,6 +68,7 @@ create table if not exists issues (
   reported_by_villa text,
   reporter_name text not null,
   reporter_phone text,
+  issue_photo_urls jsonb not null default '[]'::jsonb,
   status text not null default 'open' check (status in ('open', 'resolved')),
   created_at timestamptz not null default now(),
   resolved_at timestamptz,
@@ -78,6 +79,7 @@ create table if not exists issues (
 alter table issues drop constraint if exists issues_category_check;
 alter table issues add constraint issues_category_check
   check (category in ('plumbing', 'electrical', 'pest', 'general'));
+alter table issues add column if not exists issue_photo_urls jsonb not null default '[]'::jsonb;
 
 create index if not exists issues_status_idx on issues (status);
 create index if not exists issues_created_at_idx on issues (created_at);
@@ -121,6 +123,7 @@ language sql
 stable
 security definer
 set search_path = public
+set row_security = off
 as $$
   select role from profiles where id = auth.uid()
 $$;
@@ -131,6 +134,7 @@ language sql
 stable
 security definer
 set search_path = public
+set row_security = off
 as $$
   select villa_number from profiles where id = auth.uid()
 $$;
@@ -144,6 +148,22 @@ begin
   return new;
 end;
 $$;
+
+create or replace function admin_clear_issues()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  truncate table issues restart identity;
+end;
+$$;
+
+revoke all on function admin_clear_issues() from public;
+revoke all on function admin_clear_issues() from anon;
+revoke all on function admin_clear_issues() from authenticated;
+grant execute on function admin_clear_issues() to service_role;
 
 drop trigger if exists service_contacts_touch_updated_at on service_contacts;
 create trigger service_contacts_touch_updated_at
@@ -179,7 +199,11 @@ drop policy if exists "Admins can edit service contacts" on service_contacts;
 
 create policy "A user can read their own profile"
   on profiles for select
-  using (auth.uid() = id or current_profile_role() = 'superadmin');
+  using (auth.uid() = id);
+
+create policy "Superadmin can read all profiles"
+  on profiles for select
+  using (current_profile_role() = 'superadmin');
 
 create policy "A user can update their own profile"
   on profiles for update

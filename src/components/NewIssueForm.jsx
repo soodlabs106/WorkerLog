@@ -1,6 +1,7 @@
 import React from "react";
-import { AlertTriangle, ChevronRight, Copy, Phone, RotateCcw } from "lucide-react";
+import { AlertTriangle, ChevronRight, Copy, ImagePlus, Phone, RotateCcw, X } from "lucide-react";
 import { CATEGORIES, URGENCY } from "../lib/format";
+import { photoKey, photoThumbSrc } from "../lib/photos";
 import { VILLAS, villaLabel } from "../lib/villas";
 import { Field, inputStyle } from "./Shared";
 
@@ -47,6 +48,8 @@ export default function NewIssueForm({
   onCopyMessage,
   copyingMessage,
   onResetForm,
+  onPhotoChange,
+  onPhotoRemove,
   canUseResidentList,
 }) {
   const set = (key) => (e) => setForm((current) => ({ ...current, [key]: e.target.value }));
@@ -142,6 +145,46 @@ export default function NewIssueForm({
           onChange={set("description")}
           style={{ ...inputStyle, resize: "vertical", minHeight: 92 }}
         />
+      </Field>
+
+      <Field label="Photos" hint="You can add multiple photos. Each photo must be 3 MB or smaller.">
+        <label style={{
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8, border: "1px dashed var(--hairline)",
+          borderRadius: 8, padding: "12px", background: "#FCFBF7", color: "var(--ink-soft)", fontSize: 13, cursor: "pointer",
+        }}>
+          <ImagePlus size={15} /> Add photos
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(e) => {
+              onPhotoChange(e.target.files);
+              e.target.value = "";
+            }}
+            style={{ display: "none" }}
+          />
+        </label>
+
+        {form.issuePhotos?.length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginTop: 8 }}>
+            {form.issuePhotos.map((photo, index) => (
+              <div key={photoKey(photo, index)} style={{ position: "relative", borderRadius: 10, overflow: "hidden", border: "1px solid var(--hairline)", background: "var(--card)" }}>
+                <img src={photoThumbSrc(photo)} alt={`Issue upload ${index + 1}`} style={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover" }} />
+                <button
+                  type="button"
+                  onClick={() => onPhotoRemove(index)}
+                  style={{
+                    position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: 999,
+                    border: "none", background: "rgba(32,42,34,0.82)", color: "#fff",
+                    display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
+                  }}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </Field>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { Plus, ClipboardList, BarChart3, LogOut, Loader2, ShieldCheck } from "lucide-react";
 import { supabase, supabaseAnonKey, supabaseUrl } from "../lib/supabaseClient";
-import { urgencyRank, serviceForCategory } from "../lib/format";
+import { sortServiceContacts, urgencyRank, serviceForCategory } from "../lib/format";
+import { buildIssuePhotoPayload } from "../lib/photos";
 import { canManageContacts, isSuperAdminProfile, profileLabel } from "../lib/profiles";
 import { NavButton } from "./Shared";
 import NewIssueForm from "./NewIssueForm";
@@ -22,6 +23,7 @@ function emptyForm(profile, residents) {
     reporterChoice: firstResident ? String(firstResident.id) : "__guest__",
     reporterName: firstResident ? firstResident.name : "",
     reporterPhone: firstResident ? firstResident.phone || "" : "",
+    issuePhotos: [],
   };
 }
 
@@ -59,6 +61,9 @@ export default function MainApp({ profile, residents }) {
   const [contacts, setContacts] = useState([]);
   const [directoryRows, setDirectoryRows] = useState([]);
   const [loadError, setLoadError] = useState("");
+  const [issuesLoading, setIssuesLoading] = useState(false);
+  const [issuesError, setIssuesError] = useState("");
+  const [issuesLoadedOnce, setIssuesLoadedOnce] = useState(false);
   const [tab, setTab] = useState("new");
   const [ticketFilter, setTicketFilter] = useState("open");
   const [now, setNow] = useState(Date.now());
@@ -81,9 +86,15 @@ export default function MainApp({ profile, residents }) {
 
   const matchedServiceName = serviceForCategory(form.category);
   const matchedContacts = useMemo(
-    () => contacts.filter((contact) => matchedServiceName && contact.service === matchedServiceName),
+    () => sortServiceContacts(contacts.filter((contact) => matchedServiceName && contact.service === matchedServiceName)),
     [contacts, matchedServiceName]
   );
+  const resolveWorkerOptions = useMemo(() => {
+    if (!resolveTarget) return [];
+    const serviceName = serviceForCategory(resolveTarget.category);
+    if (!serviceName) return [];
+    return sortServiceContacts(contacts.filter((contact) => contact.service === serviceName));
+  }, [contacts, resolveTarget]);
   const resetPasswordEndpoint = "/api/admin-reset-password";
   const serviceTypeOptions = useMemo(() => {
     const base = ["Electrician", "Plumber", "Snake Catcher"];
@@ -95,17 +106,20 @@ export default function MainApp({ profile, residents }) {
   }, [contacts]);
 
   const fetchIssues = useCallback(async () => {
+    setIssuesLoading(true);
     const { data, error } = await supabase
       .from("issues")
       .select("*")
       .order("created_at", { ascending: true });
 
     if (error) {
-      setLoadError(error.message);
+      setIssuesError(error.message);
     } else {
       setIssues(data || []);
-      setLoadError("");
+      setIssuesError("");
+      setIssuesLoadedOnce(true);
     }
+    setIssuesLoading(false);
   }, []);
 
   const fetchContacts = useCallback(async () => {
@@ -139,25 +153,38 @@ export default function MainApp({ profile, residents }) {
     setDirectoryRows(buildDirectoryRows(profilesData || [], residentsData || []));
   }, [profile]);
 
-  const loadAll = useCallback(async () => {
+  const loadCoreData = useCallback(async () => {
     try {
-      await Promise.all([fetchIssues(), fetchContacts(), fetchDirectory()]);
+      await Promise.all([fetchContacts(), fetchDirectory()]);
       setReady(true);
     } catch (error) {
       setLoadError(error.message || String(error));
       setReady(true);
     }
-  }, [fetchContacts, fetchDirectory, fetchIssues]);
+  }, [fetchContacts, fetchDirectory]);
 
   useEffect(() => {
-    loadAll();
+    loadCoreData();
     const channel = supabase
       .channel("issues-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "issues" }, () => fetchIssues())
       .subscribe();
 
     return () => supabase.removeChannel(channel);
-  }, [fetchIssues, loadAll]);
+  }, [fetchIssues, loadCoreData]);
+
+  useEffect(() => {
+    if (!ready || issuesLoading || issuesLoadedOnce) return undefined;
+    const timer = setTimeout(() => {
+      fetchIssues();
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [fetchIssues, issuesLoadedOnce, issuesLoading, ready]);
+
+  useEffect(() => {
+    if (tab === "new" || issuesLoadedOnce || issuesLoading) return;
+    fetchIssues();
+  }, [fetchIssues, issuesLoadedOnce, issuesLoading, tab]);
 
   useEffect(() => {
     setForm(emptyForm(profile, residents));
@@ -216,6 +243,7 @@ export default function MainApp({ profile, residents }) {
       reported_by_villa: profile.villa_number || profile.username,
       reporter_name: form.reporterName.trim(),
       reporter_phone: form.reporterPhone.trim() || null,
+      issue_photo_urls: form.issuePhotos || [],
       status: "open",
     }).select().single();
 
@@ -263,6 +291,35 @@ export default function MainApp({ profile, residents }) {
   function resetIssueForm() {
     setForm(emptyForm(profile, residents));
     setFormError("");
+  }
+
+  async function handleIssuePhotoChange(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+
+    const oversize = files.find((file) => file.size > 3 * 1024 * 1024);
+    if (oversize) {
+      setFormError(`${oversize.name} is larger than 3 MB. Please choose a smaller photo.`);
+      return;
+    }
+
+    try {
+      const nextPhotos = await Promise.all(
+        files.map((file) => buildIssuePhotoPayload(file))
+      );
+
+      setForm((current) => ({ ...current, issuePhotos: [...(current.issuePhotos || []), ...nextPhotos] }));
+      setFormError("");
+    } catch (error) {
+      setFormError(error.message || String(error));
+    }
+  }
+
+  function removeIssuePhoto(index) {
+    setForm((current) => ({
+      ...current,
+      issuePhotos: (current.issuePhotos || []).filter((_, currentIndex) => currentIndex !== index),
+    }));
   }
 
   function openResolveModal(issue) {
@@ -448,6 +505,8 @@ export default function MainApp({ profile, residents }) {
             onCopyMessage={copyIssueMessage}
             copyingMessage={copyingMessage}
             onResetForm={resetIssueForm}
+            onPhotoChange={handleIssuePhotoChange}
+            onPhotoRemove={removeIssuePhoto}
             canUseResidentList={profile.role === "villa"}
           />
         )}
@@ -458,6 +517,8 @@ export default function MainApp({ profile, residents }) {
             setFilter={setTicketFilter}
             open={openIssues}
             resolved={resolvedIssues}
+            loading={issuesLoading}
+            error={issuesError}
             now={now}
             onResolve={openResolveModal}
             whatsappLink={whatsappLink}
@@ -465,7 +526,7 @@ export default function MainApp({ profile, residents }) {
         )}
 
         {tab === "dashboard" && (
-          <Dashboard issues={issues} />
+          <Dashboard issues={issues} loading={issuesLoading} error={issuesError} />
         )}
 
         {tab === "admin" && canManageContacts(profile) && (
@@ -519,6 +580,7 @@ export default function MainApp({ profile, residents }) {
           setNotes={setResolveNotes}
           worker={resolveWorker}
           setWorker={setResolveWorker}
+          workerOptions={resolveWorkerOptions}
           pin={resolvePin}
           setPin={setResolvePin}
           requirePin={!!STAFF_PIN && profile.role === "villa"}

@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "seed": "node scripts/seed-users.mjs"
+    "seed": "node scripts/seed-users.mjs",
+    "clear-issues": "node scripts/clear-issues.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
@@ -18,7 +19,7 @@
     "recharts": "^2.12.7"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.4.1"
+    "@vitejs/plugin-react": "4.7.0",
+    "vite": "5.4.1"
   }
 }

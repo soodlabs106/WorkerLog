@@ -17,7 +17,7 @@ function monthLabelFromValue(value) {
   return date.toLocaleDateString(undefined, { month: "short", year: "numeric" });
 }
 
-export default function Dashboard({ issues }) {
+export default function Dashboard({ issues, loading, error }) {
   const monthOptions = useMemo(() => {
     const values = Array.from(new Set(issues.map((issue) => monthValue(issue.created_at))));
     return values.sort((a, b) => b.localeCompare(a));
@@ -94,6 +94,18 @@ export default function Dashboard({ issues }) {
 
   return (
     <div>
+      {loading && issues.length === 0 && (
+        <div style={{ marginBottom: 12, color: "var(--ink-soft)", fontSize: 13 }}>
+          Loading dashboard data...
+        </div>
+      )}
+
+      {error && (
+        <div style={{ marginBottom: 12, color: "var(--rust)", fontSize: 13 }}>
+          Could not refresh dashboard data: {error}
+        </div>
+      )}
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
         <label style={{ display: "block" }}>
           <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 6 }}>Month</div>

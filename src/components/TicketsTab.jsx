@@ -1,8 +1,9 @@
 import React from "react";
 import { MapPin, User, Phone, Clock, CheckCircle2, ChevronRight, Inbox } from "lucide-react";
 import { catInfo, urgInfo, ticketNo, formatElapsed } from "../lib/format";
+import { photoFullSrc, photoKey, photoThumbSrc } from "../lib/photos";
 
-export function TicketsTab({ filter, setFilter, open, resolved, now, onResolve, whatsappLink }) {
+export function TicketsTab({ filter, setFilter, open, resolved, loading, error, now, onResolve, whatsappLink }) {
   const list = filter === "open" ? open : resolved;
   return (
     <div>
@@ -15,6 +16,18 @@ export function TicketsTab({ filter, setFilter, open, resolved, now, onResolve, 
           }}>{label}</button>
         ))}
       </div>
+
+      {loading && list.length === 0 && (
+        <div style={{ textAlign: "center", padding: "18px 12px", color: "var(--ink-soft)", fontSize: 13 }}>
+          Loading tickets...
+        </div>
+      )}
+
+      {error && (
+        <div style={{ marginBottom: 10, color: "var(--rust)", fontSize: 13 }}>
+          Could not refresh tickets: {error}
+        </div>
+      )}
 
       {list.length === 0 && (
         <div style={{ textAlign: "center", padding: "36px 12px", color: "var(--ink-soft)" }}>
@@ -60,6 +73,22 @@ function TicketCard({ issue, now, onResolve, whatsappLink }) {
       </div>
 
       <p style={{ fontSize: 14, margin: "0 0 8px", lineHeight: 1.4 }}>{issue.description}</p>
+
+      {issue.issue_photo_urls?.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 10 }}>
+          {issue.issue_photo_urls.map((photo, index) => (
+            <a
+              key={`${issue.id}-${photoKey(photo, index)}`}
+              href={photoFullSrc(photo)}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: "block", borderRadius: 8, overflow: "hidden", border: "1px solid var(--hairline)" }}
+            >
+              <img src={photoThumbSrc(photo)} alt={`Issue ${issue.id} upload ${index + 1}`} style={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover" }} />
+            </a>
+          ))}
+        </div>
+      )}
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", fontSize: 12, color: "var(--ink-soft)", marginBottom: 10 }}>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}><MapPin size={12} /> {issue.location}</span>

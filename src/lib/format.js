@@ -1,9 +1,32 @@
-import { Wrench, Zap, Bug, HelpCircle } from "lucide-react";
+import React from "react";
+import { Wrench, Zap, HelpCircle } from "lucide-react";
+
+export function SnakeIcon({ size = 16, strokeWidth = 1.8, ...props }) {
+  return React.createElement(
+    "svg",
+    {
+      viewBox: "0 0 24 24",
+      fill: "none",
+      width: size,
+      height: size,
+      stroke: "currentColor",
+      strokeWidth,
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true",
+      ...props,
+    },
+    React.createElement("path", { d: "M6 6c0-1.7 1.3-3 3-3s3 1.3 3 3v5c0 1.7 1.3 3 3 3s3 1.3 3 3-1.3 3-3 3-3-1.3-3-3" }),
+    React.createElement("path", { d: "M9 7h3" }),
+    React.createElement("path", { d: "M15.5 18h.01" }),
+    React.createElement("path", { d: "M18 18h.01" })
+  );
+}
 
 export const CATEGORIES = [
   { key: "plumbing", label: "Plumbing", Icon: Wrench },
   { key: "electrical", label: "Electrical", Icon: Zap },
-  { key: "pest", label: "Snake", Icon: Bug },
+  { key: "pest", label: "Snake", Icon: SnakeIcon },
   { key: "general", label: "General", Icon: HelpCircle },
 ];
 
@@ -33,6 +56,25 @@ export function urgInfo(key) {
 
 export function serviceForCategory(key) {
   return SERVICE_BY_CATEGORY[key] || null;
+}
+
+export function serviceRoleRank(role) {
+  const normalized = String(role || "").toLowerCase();
+  if (normalized === "primary") return 0;
+  if (normalized === "secondary") return 1;
+  return 2;
+}
+
+export function sortServiceContacts(contacts) {
+  return [...contacts].sort((a, b) => {
+    const roleDiff = serviceRoleRank(a.role) - serviceRoleRank(b.role);
+    if (roleDiff !== 0) return roleDiff;
+
+    const orderDiff = (a.sort_order ?? 0) - (b.sort_order ?? 0);
+    if (orderDiff !== 0) return orderDiff;
+
+    return `${a.name || ""}`.localeCompare(`${b.name || ""}`);
+  });
 }
 
 export function ticketNo(id) {
