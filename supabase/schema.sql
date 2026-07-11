@@ -119,6 +119,8 @@ create or replace function current_profile_role()
 returns text
 language sql
 stable
+security definer
+set search_path = public
 as $$
   select role from profiles where id = auth.uid()
 $$;
@@ -127,6 +129,8 @@ create or replace function current_profile_villa()
 returns text
 language sql
 stable
+security definer
+set search_path = public
 as $$
   select villa_number from profiles where id = auth.uid()
 $$;

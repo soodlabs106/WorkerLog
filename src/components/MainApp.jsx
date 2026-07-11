@@ -423,7 +423,7 @@ export default function MainApp({ profile, residents }) {
           <div style={{ fontFamily: "var(--f-mono)", fontSize: 10, letterSpacing: "0.12em", color: "var(--brass)", textTransform: "uppercase" }}>
             Community maintenance
           </div>
-          <h1 style={{ fontFamily: "var(--f-display)", fontWeight: 700, fontSize: 22, margin: "2px 0 0" }}>The Colony Register</h1>
+          <h1 style={{ fontFamily: "var(--f-display)", fontWeight: 700, fontSize: 22, margin: "2px 0 0" }}>EM2 Resolce</h1>
           <p style={{ fontSize: 12, color: "var(--ink-soft)", margin: "4px 0 0" }}>
             Signed in as {profileLabel(profile)}
           </p>
