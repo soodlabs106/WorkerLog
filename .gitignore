@@ -2,5 +2,7 @@ node_modules
 dist
 .env
 .env.local
+.netlify
+supabase/.temp/
 .DS_Store
 *.log
