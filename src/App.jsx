@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Loader2 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
-import { villaLabel } from "./lib/villas";
+import { isVillaProfile, profileLabel } from "./lib/profiles";
 import Login from "./components/Login";
 import ChangePasswordGate from "./components/ChangePasswordGate";
 import AddResidentsGate from "./components/AddResidentsGate";
@@ -19,7 +19,7 @@ export default function App() {
   const [loadingSession, setLoadingSession] = useState(true);
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
-  const [residents, setResidents] = useState(null);
+  const [residents, setResidents] = useState([]);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [error, setError] = useState("");
 
@@ -33,10 +33,15 @@ export default function App() {
       .eq("id", userId)
       .single();
 
-    if (profileError) {
-      setError(
-        "Couldn't find a profile for this account. If this is a fresh install, run scripts/seed-users.mjs first."
-      );
+    if (profileError || !profileData) {
+      setError("Could not find a profile for this account. Run the updated schema and seed script first.");
+      setLoadingProfile(false);
+      return;
+    }
+
+    if (!isVillaProfile(profileData) || !profileData.villa_number) {
+      setProfile(profileData);
+      setResidents([]);
       setLoadingProfile(false);
       return;
     }
@@ -59,19 +64,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
+    supabase.auth.getSession().then(({ data: { session: nextSession } }) => {
+      setSession(nextSession);
       setLoadingSession(false);
-      if (session) loadProfileAndResidents(session.user.id);
+      if (nextSession) loadProfileAndResidents(nextSession.user.id);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session) {
-        loadProfileAndResidents(session.user.id);
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      if (nextSession) {
+        loadProfileAndResidents(nextSession.user.id);
       } else {
         setProfile(null);
-        setResidents(null);
+        setResidents([]);
       }
     });
 
@@ -82,7 +87,7 @@ export default function App() {
     return (
       <Centered>
         <div style={{ display: "flex", alignItems: "center", gap: 10, color: "var(--ink-soft)" }}>
-          <Loader2 size={18} className="spin" /> Loading…
+          <Loader2 size={18} className="spin" /> Loading...
         </div>
       </Centered>
     );
@@ -96,7 +101,7 @@ export default function App() {
     return (
       <Centered>
         <div style={{ display: "flex", alignItems: "center", gap: 10, color: "var(--ink-soft)" }}>
-          <Loader2 size={18} className="spin" /> Loading your villa…
+          <Loader2 size={18} className="spin" /> Loading your account...
         </div>
       </Centered>
     );
@@ -106,7 +111,7 @@ export default function App() {
     return (
       <Centered>
         <div style={{ maxWidth: 380, textAlign: "center", padding: 24 }}>
-          <p style={{ color: "var(--rust)", fontWeight: 600, marginBottom: 6 }}>Something's not set up yet.</p>
+          <p style={{ color: "var(--rust)", fontWeight: 600, marginBottom: 6 }}>Something is not set up yet.</p>
           <p style={{ fontSize: 13, color: "var(--ink-soft)" }}>{error}</p>
           <button onClick={() => supabase.auth.signOut()} style={{
             marginTop: 16, background: "none", border: "1px solid var(--hairline)", borderRadius: 8,
@@ -122,7 +127,7 @@ export default function App() {
   if (profile.must_change_password) {
     return (
       <ChangePasswordGate
-        villaLabel={villaLabel(profile.villa_number)}
+        villaLabel={profileLabel(profile)}
         onDone={async () => {
           await supabase.from("profiles").update({ must_change_password: false }).eq("id", profile.id);
           await loadProfileAndResidents(profile.id);
@@ -131,11 +136,11 @@ export default function App() {
     );
   }
 
-  if (residents.length === 0) {
+  if (isVillaProfile(profile) && residents.length === 0) {
     return (
       <AddResidentsGate
         villaId={profile.villa_number}
-        villaLabel={villaLabel(profile.villa_number)}
+        villaLabel={profileLabel(profile)}
         onDone={() => loadProfileAndResidents(profile.id)}
       />
     );

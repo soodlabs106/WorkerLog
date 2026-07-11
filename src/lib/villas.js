@@ -10,11 +10,9 @@ export const VILLA_NUMBERS = Array.from(
 export const VILLAS = VILLA_NUMBERS.map((n) => `villa-${n}`);
 
 export function villaLabel(villaId) {
-  return villaId.replace("villa-", "Villa ");
+  return (villaId || "").replace("villa-", "Villa ");
 }
 
 export function defaultPasswordFor(villaId) {
-  // Default credentials: username and password are both the villa id,
-  // e.g. villa-106 / villa-106. Residents change this on first login.
   return villaId;
 }

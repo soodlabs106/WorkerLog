@@ -1,11 +1,11 @@
 import React, { useState } from "react";
 import { LogIn, AlertTriangle } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
-import { villaToEmail, normalizeVillaInput } from "../lib/auth";
+import { accountToEmail, normalizeLoginInput } from "../lib/auth";
 import { Field, inputStyle } from "./Shared";
 
 export default function Login() {
-  const [villaInput, setVillaInput] = useState("");
+  const [accountInput, setAccountInput] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -13,23 +13,26 @@ export default function Login() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
-    const villaId = normalizeVillaInput(villaInput);
-    if (!villaId) {
-      setError("Enter your villa number, e.g. 106.");
+
+    const username = normalizeLoginInput(accountInput);
+    if (!username) {
+      setError("Enter your villa number or account name.");
       return;
     }
     if (!password) {
       setError("Enter your password.");
       return;
     }
+
     setSubmitting(true);
     const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: villaToEmail(villaId),
+      email: accountToEmail(username),
       password,
     });
     setSubmitting(false);
+
     if (signInError) {
-      setError("Villa number or password doesn't match. Check with whoever manages the register if you're not sure.");
+      setError("Account name or password does not match. Check with whoever manages the register if you are not sure.");
     }
   }
 
@@ -44,16 +47,17 @@ export default function Login() {
         </h1>
 
         <form onSubmit={handleSubmit} style={{ background: "var(--card)", border: "1px solid var(--hairline)", borderRadius: 12, padding: "20px 18px" }}>
-          <Field label="Villa number" hint="e.g. 106, or villa-106">
+          <Field label="Account" hint="Use 106, villa-106, FacilityManager, or superadmin">
             <input
-              value={villaInput}
-              onChange={(e) => setVillaInput(e.target.value)}
-              placeholder="106"
+              value={accountInput}
+              onChange={(e) => setAccountInput(e.target.value)}
+              placeholder="106 or FacilityManager"
               autoCapitalize="none"
               style={inputStyle}
             />
           </Field>
-          <Field label="Password" hint="Default is your villa id, e.g. villa-106">
+
+          <Field label="Password" hint="Villa defaults to the villa id, e.g. villa-106">
             <input
               type="password"
               value={password}
@@ -76,7 +80,7 @@ export default function Login() {
             display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
             opacity: submitting ? 0.6 : 1,
           }}>
-            {submitting ? "Signing in…" : "Sign in"} <LogIn size={16} />
+            {submitting ? "Signing in..." : "Sign in"} <LogIn size={16} />
           </button>
         </form>
       </div>

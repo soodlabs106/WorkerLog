@@ -25,7 +25,7 @@ export function NavButton({ icon: Icon, label, active, onClick, badge }) {
 
 export function Field({ label, children, hint }) {
   return (
-    <label style={{ display: "block", marginBottom: 16 }}>
+    <label style={{ display: "block", marginBottom: 12 }}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: "var(--ink)" }}>{label}</div>
       {children}
       {hint && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4 }}>{hint}</div>}
@@ -34,7 +34,7 @@ export function Field({ label, children, hint }) {
 }
 
 export const inputStyle = {
-  width: "100%", padding: "10px 12px", fontSize: 14, borderRadius: 6,
+  width: "100%", padding: "9px 11px", fontSize: 14, borderRadius: 6,
   border: "1px solid var(--hairline)", background: "#FCFBF7", color: "var(--ink)",
 };
 

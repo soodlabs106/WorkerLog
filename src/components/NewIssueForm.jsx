@@ -1,22 +1,67 @@
 import React from "react";
-import { AlertTriangle, ChevronRight } from "lucide-react";
+import { AlertTriangle, ChevronRight, Copy, Phone, RotateCcw } from "lucide-react";
 import { CATEGORIES, URGENCY } from "../lib/format";
 import { VILLAS, villaLabel } from "../lib/villas";
 import { Field, inputStyle } from "./Shared";
 
-export default function NewIssueForm({ form, setForm, onSubmit, error, submitting, residents }) {
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+function ContactCard({ contact }) {
+  return (
+    <div style={{
+      background: "var(--card)", border: "1px solid var(--hairline)", borderRadius: 10,
+      padding: "10px 12px", display: "flex", gap: 10, alignItems: "center",
+    }}>
+      {contact.photo_url ? (
+        <img
+          src={contact.photo_url}
+          alt={contact.name}
+          style={{ width: 42, height: 42, borderRadius: 10, objectFit: "cover", border: "1px solid var(--hairline)" }}
+        />
+      ) : (
+        <div style={{
+          width: 42, height: 42, borderRadius: 10, background: "var(--slate-bg)", color: "var(--slate)",
+          display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, border: "1px solid var(--hairline)",
+        }}>
+          {(contact.name || "?").slice(0, 1).toUpperCase()}
+        </div>
+      )}
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 13 }}>{contact.role}</div>
+        <div style={{ fontSize: 13 }}>{contact.name}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--ink-soft)" }}>
+          <Phone size={12} /> {contact.phone_number}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function NewIssueForm({
+  form,
+  setForm,
+  onSubmit,
+  error,
+  submitting,
+  residents,
+  serviceContacts,
+  matchedServiceName,
+  onCopyMessage,
+  copyingMessage,
+  onResetForm,
+  canUseResidentList,
+}) {
+  const set = (key) => (e) => setForm((current) => ({ ...current, [key]: e.target.value }));
   const usingGuest = form.reporterChoice === "__guest__";
 
   function handleResidentChange(e) {
     const value = e.target.value;
     if (value === "__guest__") {
-      setForm((f) => ({ ...f, reporterChoice: value, reporterName: "", reporterPhone: "" }));
+      setForm((current) => ({ ...current, reporterChoice: value, reporterName: "", reporterPhone: "" }));
       return;
     }
-    const resident = residents.find((r) => r.id === Number(value));
-    setForm((f) => ({
-      ...f,
+
+    const resident = residents.find((row) => row.id === Number(value));
+    setForm((current) => ({
+      ...current,
       reporterChoice: value,
       reporterName: resident?.name || "",
       reporterPhone: resident?.phone || "",
@@ -26,19 +71,22 @@ export default function NewIssueForm({ form, setForm, onSubmit, error, submittin
   return (
     <form onSubmit={onSubmit}>
       <Field label="Type of issue">
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6 }}>
           {CATEGORIES.map(({ key, label, Icon }) => {
             const active = form.category === key;
             return (
-              <button type="button" key={key} onClick={() => setForm((f) => ({ ...f, category: key }))}
+              <button
+                type="button"
+                key={key}
+                onClick={() => setForm((current) => ({ ...current, category: key }))}
                 style={{
-                  display: "flex", flexDirection: "column", alignItems: "center", gap: 5,
-                  padding: "10px 4px", borderRadius: 8,
-                  border: active ? "1.5px solid var(--brass)" : "1px solid var(--hairline)",
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minHeight: 72,
+                  padding: "8px 4px", borderRadius: 8, border: active ? "1.5px solid var(--brass)" : "1px solid var(--hairline)",
                   background: active ? "#F3EBD6" : "var(--card)", color: "var(--ink)",
-                }}>
-                <Icon size={18} strokeWidth={1.8} />
-                <span style={{ fontSize: 11, textAlign: "center" }}>{label}</span>
+                }}
+              >
+                <Icon size={16} strokeWidth={1.8} />
+                <span style={{ fontSize: 11, textAlign: "center", lineHeight: 1.15 }}>{label}</span>
               </button>
             );
           })}
@@ -46,19 +94,22 @@ export default function NewIssueForm({ form, setForm, onSubmit, error, submittin
       </Field>
 
       <Field label="Urgency">
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {URGENCY.map((u) => {
-            const active = form.urgency === u.key;
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6 }}>
+          {URGENCY.map((urgency) => {
+            const active = form.urgency === urgency.key;
             return (
-              <button type="button" key={u.key} onClick={() => setForm((f) => ({ ...f, urgency: u.key }))}
+              <button
+                type="button"
+                key={urgency.key}
+                onClick={() => setForm((current) => ({ ...current, urgency: urgency.key }))}
                 style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "9px 12px", borderRadius: 6, textAlign: "left",
-                  border: active ? `1.5px solid ${u.color}` : "1px solid var(--hairline)",
-                  background: active ? u.bg : "var(--card)",
-                }}>
-                <span style={{ fontWeight: 600, fontSize: 13, color: active ? u.color : "var(--ink)" }}>{u.label}</span>
-                <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>{u.hint}</span>
+                  display: "flex", flexDirection: "column", gap: 2, padding: "8px 6px", minHeight: 62, borderRadius: 8,
+                  border: active ? `1.5px solid ${urgency.color}` : "1px solid var(--hairline)",
+                  background: active ? urgency.bg : "var(--card)", textAlign: "left",
+                }}
+              >
+                <span style={{ fontWeight: 700, fontSize: 12, color: active ? urgency.color : "var(--ink)" }}>{urgency.label}</span>
+                <span style={{ fontSize: 10, color: "var(--ink-soft)", lineHeight: 1.2 }}>{urgency.hint}</span>
               </button>
             );
           })}
@@ -66,31 +117,42 @@ export default function NewIssueForm({ form, setForm, onSubmit, error, submittin
       </Field>
 
       <Field label="Describe the issue">
-        <textarea rows={3} placeholder="Kitchen tap won't shut off, leaking onto the floor"
-          value={form.description} onChange={set("description")} style={{ ...inputStyle, resize: "vertical" }} />
+        <textarea
+          rows={3}
+          placeholder="Kitchen tap will not shut off, leaking onto the floor"
+          value={form.description}
+          onChange={set("description")}
+          style={{ ...inputStyle, resize: "vertical", minHeight: 92 }}
+        />
       </Field>
 
-      <Field label="Villa" hint="Defaults to your villa - change it if you're reporting for a common area or another villa">
-        <select value={form.location} onChange={set("location")} style={inputStyle}>
-          {VILLAS.map((v) => (
-            <option key={v} value={v}>{villaLabel(v)}</option>
-          ))}
-          <option value="common-area">Common area</option>
-        </select>
-      </Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <Field label="Villa" hint="Change this for a common area issue">
+          <select value={form.location} onChange={set("location")} style={inputStyle}>
+            {VILLAS.map((villa) => (
+              <option key={villa} value={villa}>{villaLabel(villa)}</option>
+            ))}
+            <option value="common-area">Common area</option>
+          </select>
+        </Field>
 
-      <Field label="Reporter">
-        <select value={form.reporterChoice} onChange={handleResidentChange} style={inputStyle}>
-          {residents.map((r) => (
-            <option key={r.id} value={r.id}>{r.name}</option>
-          ))}
-          <option value="__guest__">Someone else / guest</option>
-        </select>
-      </Field>
+        <Field label="Reporter">
+          {canUseResidentList ? (
+            <select value={form.reporterChoice} onChange={handleResidentChange} style={inputStyle}>
+              {residents.map((resident) => (
+                <option key={resident.id} value={resident.id}>{resident.name}</option>
+              ))}
+              <option value="__guest__">Someone else</option>
+            </select>
+          ) : (
+            <input value={form.reporterName} onChange={set("reporterName")} placeholder="Reporter name" style={inputStyle} />
+          )}
+        </Field>
+      </div>
 
-      {usingGuest && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <Field label="Name">
+      {usingGuest && canUseResidentList && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <Field label="Guest name">
             <input placeholder="Guest name" value={form.reporterName} onChange={set("reporterName")} style={inputStyle} />
           </Field>
           <Field label="WhatsApp number">
@@ -98,6 +160,54 @@ export default function NewIssueForm({ form, setForm, onSubmit, error, submittin
           </Field>
         </div>
       )}
+
+      {!canUseResidentList && (
+        <Field label="Contact phone">
+          <input placeholder="9845000000" value={form.reporterPhone} onChange={set("reporterPhone")} style={inputStyle} />
+        </Field>
+      )}
+
+      {matchedServiceName && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Suggested contacts: {matchedServiceName}</div>
+          {serviceContacts.length > 0 ? (
+            <div style={{ display: "grid", gap: 8 }}>
+              {serviceContacts.map((contact) => <ContactCard key={contact.id} contact={contact} />)}
+            </div>
+          ) : (
+            <div style={{
+              background: "var(--card)", border: "1px dashed var(--hairline)", borderRadius: 10,
+              padding: "12px", fontSize: 12, color: "var(--ink-soft)",
+            }}>
+              No contacts have been added for this service yet.
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+        <button
+          type="button"
+          onClick={onCopyMessage}
+          disabled={copyingMessage}
+          style={{
+            padding: "11px 12px", background: "var(--card)", color: "var(--ink)", border: "1px solid var(--hairline)",
+            borderRadius: 8, fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+          }}
+        >
+          <Copy size={15} /> {copyingMessage ? "Copying..." : "Create message"}
+        </button>
+        <button
+          type="button"
+          onClick={onResetForm}
+          style={{
+            padding: "11px 12px", background: "var(--card)", color: "var(--ink-soft)", border: "1px solid var(--hairline)",
+            borderRadius: 8, fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+          }}
+        >
+          <RotateCcw size={15} /> Reset form
+        </button>
+      </div>
 
       {error && (
         <div style={{ display: "flex", gap: 8, alignItems: "flex-start", background: "var(--rust-bg)", color: "var(--rust)", padding: "9px 12px", borderRadius: 6, fontSize: 13, marginBottom: 14 }}>
@@ -107,12 +217,12 @@ export default function NewIssueForm({ form, setForm, onSubmit, error, submittin
       )}
 
       <button type="submit" disabled={submitting} style={{
-        width: "100%", padding: "13px", background: "var(--ink)", color: "#F4F2E9",
+        width: "100%", padding: "12px", background: "var(--ink)", color: "#F4F2E9",
         border: "none", borderRadius: 8, fontWeight: 600, fontSize: 14,
         display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
         opacity: submitting ? 0.6 : 1,
       }}>
-        {submitting ? "Raising ticket…" : "Raise ticket"} <ChevronRight size={16} />
+        {submitting ? "Raising ticket..." : "Raise ticket"} <ChevronRight size={16} />
       </button>
     </form>
   );

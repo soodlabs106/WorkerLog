@@ -30,7 +30,7 @@ export default function ResolveModal({ issue, notes, setNotes, worker, setWorker
         </Field>
 
         {requirePin && (
-          <Field label="Staff PIN" hint="Set in your .env as VITE_STAFF_PIN — a soft deterrent, not real security">
+          <Field label="Staff PIN" hint="Set in your .env as VITE_STAFF_PIN - a soft deterrent, not real security">
             <input type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="••••" style={inputStyle} />
           </Field>
         )}

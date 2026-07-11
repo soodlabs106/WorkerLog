@@ -1,28 +1,38 @@
-import { Wrench, Zap, Bug, Hammer, HelpCircle } from "lucide-react";
+import { Wrench, Zap, Bug, HelpCircle } from "lucide-react";
 
 export const CATEGORIES = [
   { key: "plumbing", label: "Plumbing", Icon: Wrench },
   { key: "electrical", label: "Electrical", Icon: Zap },
   { key: "pest", label: "Snake / pest", Icon: Bug },
-  { key: "carpentry", label: "Carpentry", Icon: Hammer },
   { key: "general", label: "General", Icon: HelpCircle },
 ];
 
 export const URGENCY = [
-  { key: "emergency", label: "Emergency", color: "var(--rust)", bg: "var(--rust-bg)", hint: "Active danger — attend now" },
+  { key: "emergency", label: "Emergency", color: "var(--rust)", bg: "var(--rust-bg)", hint: "Active danger - attend now" },
   { key: "high", label: "High", color: "var(--amber)", bg: "var(--amber-bg)", hint: "Fix within a few hours" },
   { key: "medium", label: "Medium", color: "var(--slate)", bg: "var(--slate-bg)", hint: "Fix today or tomorrow" },
   { key: "low", label: "Low", color: "var(--moss)", bg: "var(--moss-bg)", hint: "No rush, whenever convenient" },
 ];
 
+export const SERVICE_BY_CATEGORY = {
+  plumbing: "Plumber",
+  electrical: "Electrician",
+  pest: "Snake Catcher",
+  general: null,
+};
+
 export const urgencyRank = { emergency: 0, high: 1, medium: 2, low: 3 };
 
 export function catInfo(key) {
-  return CATEGORIES.find((c) => c.key === key) || CATEGORIES[4];
+  return CATEGORIES.find((c) => c.key === key) || CATEGORIES[CATEGORIES.length - 1];
 }
 
 export function urgInfo(key) {
   return URGENCY.find((u) => u.key === key) || URGENCY[2];
+}
+
+export function serviceForCategory(key) {
+  return SERVICE_BY_CATEGORY[key] || null;
 }
 
 export function ticketNo(id) {
