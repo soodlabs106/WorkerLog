@@ -6,6 +6,13 @@ export default defineConfig({
   server: {
     port: 4318,
     strictPort: true,
+    proxy: {
+      "/api/admin-reset-password": {
+        target: "https://yjnbwxneozequrwhzqvg.supabase.co",
+        changeOrigin: true,
+        rewrite: () => "/functions/v1/admin-reset-password",
+      },
+    },
   },
   preview: {
     port: 4319,

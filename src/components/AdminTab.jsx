@@ -67,6 +67,7 @@ function UserDirectory({ rows, onResetPassword, resettingUsername }) {
 export default function AdminTab({
   profile,
   contacts,
+  serviceOptions,
   onSaveContacts,
   savingContacts,
   contactSaveError,
@@ -80,6 +81,7 @@ export default function AdminTab({
       <ServiceContactsPanel
         contacts={contacts}
         canEdit
+        serviceOptions={serviceOptions}
         onSave={onSaveContacts}
         saving={savingContacts}
         saveError={contactSaveError}

@@ -4,15 +4,24 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const EMAIL_DOMAIN = "colonyregister.app";
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...corsHeaders },
   });
 }
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   if (req.method !== "POST") {
     return json({ error: "Method not allowed" }, 405);
   }
@@ -95,12 +104,32 @@ Deno.serve(async (req) => {
       return json({ error: resetError.message }, 500);
     }
 
-    await adminClient
+    if (targetProfile.role === "villa") {
+      const { error: deleteResidentsError } = await adminClient
+        .from("residents")
+        .delete()
+        .eq("villa_number", targetProfile.username);
+
+      if (deleteResidentsError) {
+        return json({ error: deleteResidentsError.message }, 500);
+      }
+    }
+
+    const { error: profileUpdateError } = await adminClient
       .from("profiles")
-      .update({ must_change_password: targetProfile.role === "villa" })
+      .update({ must_change_password: true })
       .eq("id", targetProfile.id);
 
-    return json({ ok: true, username: targetProfile.username, defaultPassword });
+    if (profileUpdateError) {
+      return json({ error: profileUpdateError.message }, 500);
+    }
+
+    return json({
+      ok: true,
+      username: targetProfile.username,
+      defaultPassword,
+      resetMode: targetProfile.role === "villa" ? "first-login-full" : "password-change-required",
+    });
   } catch (error) {
     return json({ error: String(error) }, 500);
   }

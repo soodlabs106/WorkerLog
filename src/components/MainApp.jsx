@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { Plus, ClipboardList, BarChart3, LogOut, Loader2, ShieldCheck } from "lucide-react";
-import { supabase } from "../lib/supabaseClient";
-import { urgencyRank, monthLabel, CATEGORIES, serviceForCategory } from "../lib/format";
+import { supabase, supabaseAnonKey, supabaseUrl } from "../lib/supabaseClient";
+import { urgencyRank, serviceForCategory } from "../lib/format";
 import { canManageContacts, isSuperAdminProfile, profileLabel } from "../lib/profiles";
 import { NavButton } from "./Shared";
 import NewIssueForm from "./NewIssueForm";
@@ -84,6 +84,17 @@ export default function MainApp({ profile, residents }) {
     () => contacts.filter((contact) => matchedServiceName && contact.service === matchedServiceName),
     [contacts, matchedServiceName]
   );
+  const resetPasswordEndpoint = import.meta.env.DEV
+    ? "/api/admin-reset-password"
+    : `${supabaseUrl}/functions/v1/admin-reset-password`;
+  const serviceTypeOptions = useMemo(() => {
+    const base = ["Electrician", "Plumber", "Snake Catcher"];
+    const set = new Set(base);
+    contacts.forEach((contact) => {
+      if (contact.service) set.add(contact.service);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [contacts]);
 
   const fetchIssues = useCallback(async () => {
     const { data, error } = await supabase
@@ -291,12 +302,21 @@ export default function MainApp({ profile, residents }) {
     fetchIssues();
   }
 
-  async function saveContacts(nextContacts) {
+  function slugify(value) {
+    return value
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  }
+
+  async function saveContacts({ contacts: nextContacts, removedIds }) {
     setSavingContacts(true);
     setContactSaveError("");
     const operations = await Promise.all(
       nextContacts.map((contact, index) => {
         const payload = {
+          seed_key: contact.seed_key?.trim() || `${slugify(contact.service)}-${slugify(contact.role)}-${slugify(contact.name)}-${index + 1}`,
           service: contact.service.trim(),
           role: contact.role.trim(),
           name: contact.name.trim(),
@@ -317,11 +337,15 @@ export default function MainApp({ profile, residents }) {
       })
     );
 
+    const deleteResult = removedIds.length
+      ? await supabase.from("service_contacts").delete().in("id", removedIds)
+      : { error: null };
+
     const failed = operations.find((result) => result.error);
     setSavingContacts(false);
 
-    if (failed?.error) {
-      setContactSaveError(failed.error.message);
+    if (failed?.error || deleteResult.error) {
+      setContactSaveError(failed?.error?.message || deleteResult.error.message);
       return;
     }
 
@@ -331,68 +355,43 @@ export default function MainApp({ profile, residents }) {
 
   async function resetPassword(username) {
     setResettingUsername(username);
-    const { data, error } = await supabase.functions.invoke("admin-reset-password", {
-      body: { username },
-    });
-    setResettingUsername("");
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
 
-    if (error) {
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        throw new Error("Your session expired. Please sign in again and retry.");
+      }
+
+      const response = await fetch(resetPasswordEndpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          ...(import.meta.env.DEV ? {} : { apikey: supabaseAnonKey }),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.error) {
+        throw new Error(payload?.error || `Password reset failed (${response.status})`);
+      }
+
+      setToast(`Password reset for ${username}`);
+      fetchDirectory();
+    } catch (error) {
       setToast(error.message || "Password reset failed");
-      return;
+    } finally {
+      setResettingUsername("");
     }
-    if (data?.error) {
-      setToast(data.error);
-      return;
-    }
-
-    setToast(`Password reset for ${username}`);
-    fetchDirectory();
   }
 
   const whatsappLink = (issue, message) => {
     const phone = (issue.reporter_phone || "").replace(/[^0-9]/g, "");
     return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
   };
-
-  const monthly = useMemo(() => {
-    const map = new Map();
-    const monthsBack = 6;
-    const nowDate = new Date();
-    for (let offset = monthsBack - 1; offset >= 0; offset -= 1) {
-      const date = new Date(nowDate.getFullYear(), nowDate.getMonth() - offset, 1);
-      map.set(monthLabel(date.getTime()), 0);
-    }
-    issues.forEach((issue) => {
-      const label = monthLabel(new Date(issue.created_at).getTime());
-      if (map.has(label)) map.set(label, map.get(label) + 1);
-    });
-    return Array.from(map, ([month, count]) => ({ month, count }));
-  }, [issues]);
-
-  const avgFixByType = useMemo(() => {
-    const sums = {};
-    CATEGORIES.forEach((category) => {
-      sums[category.key] = { total: 0, count: 0 };
-    });
-    resolvedIssues.forEach((issue) => {
-      const hours = (new Date(issue.resolved_at) - new Date(issue.created_at)) / 3600000;
-      if (!sums[issue.category]) sums[issue.category] = { total: 0, count: 0 };
-      sums[issue.category].total += hours;
-      sums[issue.category].count += 1;
-    });
-    return CATEGORIES.map((category) => ({
-      name: category.label,
-      key: category.key,
-      hours: sums[category.key].count ? Math.round((sums[category.key].total / sums[category.key].count) * 10) / 10 : 0,
-      n: sums[category.key].count,
-    })).filter((entry) => entry.n > 0);
-  }, [resolvedIssues]);
-
-  const overallAvgHours = useMemo(() => {
-    if (!resolvedIssues.length) return null;
-    const total = resolvedIssues.reduce((sum, issue) => sum + (new Date(issue.resolved_at) - new Date(issue.created_at)), 0);
-    return Math.round((total / resolvedIssues.length / 3600000) * 10) / 10;
-  }, [resolvedIssues]);
 
   if (!ready) {
     return (
@@ -469,19 +468,14 @@ export default function MainApp({ profile, residents }) {
         )}
 
         {tab === "dashboard" && (
-          <Dashboard
-            total={issues.length}
-            openCount={openIssues.length}
-            overallAvgHours={overallAvgHours}
-            monthly={monthly}
-            avgFixByType={avgFixByType}
-          />
+          <Dashboard issues={issues} />
         )}
 
         {tab === "admin" && canManageContacts(profile) && (
           <AdminTab
             profile={profile}
             contacts={contacts}
+            serviceOptions={serviceTypeOptions}
             onSaveContacts={saveContacts}
             savingContacts={savingContacts}
             contactSaveError={contactSaveError}
