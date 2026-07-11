@@ -84,9 +84,7 @@ export default function MainApp({ profile, residents }) {
     () => contacts.filter((contact) => matchedServiceName && contact.service === matchedServiceName),
     [contacts, matchedServiceName]
   );
-  const resetPasswordEndpoint = import.meta.env.DEV
-    ? "/api/admin-reset-password"
-    : `${supabaseUrl}/functions/v1/admin-reset-password`;
+  const resetPasswordEndpoint = "/api/admin-reset-password";
   const serviceTypeOptions = useMemo(() => {
     const base = ["Electrician", "Plumber", "Snake Catcher"];
     const set = new Set(base);
@@ -368,7 +366,6 @@ export default function MainApp({ profile, residents }) {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          ...(import.meta.env.DEV ? {} : { apikey: supabaseAnonKey }),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ username }),
@@ -416,7 +413,7 @@ export default function MainApp({ profile, residents }) {
   }
 
   return (
-    <div style={{ background: "var(--paper)", minHeight: "100vh", maxWidth: 480, margin: "0 auto", position: "relative", paddingBottom: 74 }}>
+    <div style={{ background: "var(--paper)", minHeight: "100dvh", width: "100%", maxWidth: 480, margin: "0 auto", position: "relative", paddingBottom: 74, overflowX: "clip" }}>
       <header style={{ padding: "16px 16px 12px", borderBottom: "1px solid var(--hairline)", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <div style={{ marginBottom: 6 }}>
@@ -489,7 +486,7 @@ export default function MainApp({ profile, residents }) {
 
       <nav style={{
         position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
-        width: "100%", maxWidth: 480, background: "var(--card)", borderTop: "1px solid var(--hairline)",
+        width: "min(100%, 480px)", background: "var(--card)", borderTop: "1px solid var(--hairline)",
         display: "flex", padding: "6px 6px calc(6px + env(safe-area-inset-bottom))",
       }}>
         <NavButton icon={Plus} label="New issue" active={tab === "new"} onClick={() => setTab("new")} />
@@ -509,7 +506,7 @@ export default function MainApp({ profile, residents }) {
         <div style={{
           position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)",
           background: "var(--ink)", color: "#F4F2E9", fontSize: 13, padding: "9px 16px",
-          borderRadius: 8, maxWidth: 440, textAlign: "center", zIndex: 30,
+          borderRadius: 8, width: "calc(100vw - 24px)", maxWidth: 440, textAlign: "center", zIndex: 30,
         }}>
           {toast}
         </div>

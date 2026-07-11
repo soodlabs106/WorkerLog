@@ -9,7 +9,7 @@ import MainApp from "./components/MainApp";
 
 function Centered({ children }) {
   return (
-    <div style={{ background: "var(--paper)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ background: "var(--paper)", minHeight: "100dvh", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", overflowX: "clip" }}>
       {children}
     </div>
   );

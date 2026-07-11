@@ -37,7 +37,7 @@ export default function Login() {
   }
 
   return (
-    <div style={{ background: "var(--paper)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    <div style={{ background: "var(--paper)", minHeight: "100dvh", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, overflowX: "clip" }}>
       <div style={{ width: "100%", maxWidth: 380 }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
           <img
