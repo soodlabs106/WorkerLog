@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { Plus, ClipboardList, BarChart3, LogOut, Loader2, ShieldCheck } from "lucide-react";
 import { supabase, supabaseAnonKey, supabaseUrl } from "../lib/supabaseClient";
 import { sortServiceContacts, urgencyRank, serviceForCategory } from "../lib/format";
-import { buildIssuePhotoPayload } from "../lib/photos";
+import { buildIssuePhotoPayload, dataUrlToBlob, ISSUE_PHOTO_BUCKET, issuePhotoStoragePath, mergeIssuePhotoSources } from "../lib/photos";
 import { canManageContacts, isSuperAdminProfile, profileLabel } from "../lib/profiles";
 import { NavButton } from "./Shared";
 import NewIssueForm from "./NewIssueForm";
@@ -107,15 +107,58 @@ export default function MainApp({ profile, residents }) {
 
   const fetchIssues = useCallback(async () => {
     setIssuesLoading(true);
-    const { data, error } = await supabase
+    const photoSelect = `
+      id,
+      category,
+      urgency,
+      description,
+      location,
+      reported_by_villa,
+      reporter_name,
+      reporter_phone,
+      status,
+      created_at,
+      resolved_at,
+      resolution_notes,
+      resolved_by,
+      issue_photo_urls,
+      issue_photos(id, issue_id, full_path, thumb_path, full_deleted_at, thumb_deleted_at, created_at)
+    `;
+    const baseSelect = `
+      id,
+      category,
+      urgency,
+      description,
+      location,
+      reported_by_villa,
+      reporter_name,
+      reporter_phone,
+      status,
+      created_at,
+      resolved_at,
+      resolution_notes,
+      resolved_by,
+      issue_photo_urls
+    `;
+
+    let { data, error } = await supabase
       .from("issues")
-      .select("*")
+      .select(photoSelect)
       .order("created_at", { ascending: true });
+
+    if (error?.message?.includes("Could not find a relationship between 'issues' and 'issue_photos'")) {
+      const fallback = await supabase
+        .from("issues")
+        .select(baseSelect)
+        .order("created_at", { ascending: true });
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) {
       setIssuesError(error.message);
     } else {
-      setIssues(data || []);
+      setIssues((data || []).map(mergeIssuePhotoSources));
       setIssuesError("");
       setIssuesLoadedOnce(true);
     }
@@ -243,7 +286,6 @@ export default function MainApp({ profile, residents }) {
       reported_by_villa: profile.villa_number || profile.username,
       reporter_name: form.reporterName.trim(),
       reporter_phone: form.reporterPhone.trim() || null,
-      issue_photo_urls: form.issuePhotos || [],
       status: "open",
     }).select().single();
 
@@ -254,8 +296,21 @@ export default function MainApp({ profile, residents }) {
       return;
     }
 
+    let photoWarning = "";
+    if (form.issuePhotos?.length) {
+      try {
+        await uploadIssuePhotosForIssue(data.id, form.issuePhotos);
+      } catch (uploadError) {
+        photoWarning = uploadError.message || "Photo upload failed";
+      }
+    }
+
     setForm(emptyForm(profile, residents));
-    setToast(`Ticket #${String(data.id).padStart(4, "0")} raised`);
+    setToast(
+      photoWarning
+        ? `Ticket #${String(data.id).padStart(4, "0")} raised, but some photos could not be saved`
+        : `Ticket #${String(data.id).padStart(4, "0")} raised`
+    );
     setTab("tickets");
     setTicketFilter("open");
     fetchIssues();
@@ -291,6 +346,58 @@ export default function MainApp({ profile, residents }) {
   function resetIssueForm() {
     setForm(emptyForm(profile, residents));
     setFormError("");
+  }
+
+  async function removeStoredIssuePhotoPaths(paths) {
+    const normalizedPaths = [...new Set((paths || []).filter(Boolean))];
+    if (!normalizedPaths.length) return;
+    await supabase.storage.from(ISSUE_PHOTO_BUCKET).remove(normalizedPaths);
+  }
+
+  async function uploadIssuePhotosForIssue(issueId, photos) {
+    const uploadedPaths = [];
+    const photoRows = [];
+
+    try {
+      for (const [index, photo] of photos.entries()) {
+        const fullPath = issuePhotoStoragePath(issueId, index, "full");
+        const thumbPath = issuePhotoStoragePath(issueId, index, "thumb");
+
+        const [fullUpload, thumbUpload] = await Promise.all([
+          supabase.storage.from(ISSUE_PHOTO_BUCKET).upload(fullPath, dataUrlToBlob(photo.full), {
+            contentType: "image/jpeg",
+            cacheControl: "3600",
+            upsert: false,
+          }),
+          supabase.storage.from(ISSUE_PHOTO_BUCKET).upload(thumbPath, dataUrlToBlob(photo.thumb), {
+            contentType: "image/jpeg",
+            cacheControl: "3600",
+            upsert: false,
+          }),
+        ]);
+
+        if (fullUpload.error) throw fullUpload.error;
+        if (thumbUpload.error) throw thumbUpload.error;
+
+        uploadedPaths.push(fullPath, thumbPath);
+        photoRows.push({
+          issue_id: issueId,
+          full_path: fullPath,
+          thumb_path: thumbPath,
+        });
+      }
+
+      if (!photoRows.length) return;
+
+      const { error } = await supabase.from("issue_photos").insert(photoRows);
+      if (error) {
+        await removeStoredIssuePhotoPaths(uploadedPaths);
+        throw error;
+      }
+    } catch (error) {
+      await removeStoredIssuePhotoPaths(uploadedPaths);
+      throw error;
+    }
   }
 
   async function handleIssuePhotoChange(fileList) {

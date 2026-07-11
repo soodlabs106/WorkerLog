@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "seed": "node scripts/seed-users.mjs",
-    "clear-issues": "node scripts/clear-issues.mjs"
+    "clear-issues": "node scripts/clear-issues.mjs",
+    "cleanup-photos": "node scripts/cleanup-issue-photos.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

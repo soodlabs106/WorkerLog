@@ -74,9 +74,9 @@ function TicketCard({ issue, now, onResolve, whatsappLink }) {
 
       <p style={{ fontSize: 14, margin: "0 0 8px", lineHeight: 1.4 }}>{issue.description}</p>
 
-      {issue.issue_photo_urls?.length > 0 && (
+      {issue.display_photos?.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 10 }}>
-          {issue.issue_photo_urls.map((photo, index) => (
+          {issue.display_photos.map((photo, index) => (
             <a
               key={`${issue.id}-${photoKey(photo, index)}`}
               href={photoFullSrc(photo)}

@@ -85,6 +85,31 @@ create index if not exists issues_status_idx on issues (status);
 create index if not exists issues_created_at_idx on issues (created_at);
 
 -- ---------------------------------------------------------------------------
+-- issue_photos: metadata for issue photo files stored in Supabase Storage.
+-- The legacy issues.issue_photo_urls jsonb column may still exist in some
+-- projects; new uploads should use this table instead.
+-- ---------------------------------------------------------------------------
+create table if not exists issue_photos (
+  id bigint generated always as identity primary key,
+  issue_id bigint not null references issues (id) on delete cascade,
+  full_path text,
+  thumb_path text,
+  full_deleted_at timestamptz,
+  thumb_deleted_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+alter table issue_photos add column if not exists issue_id bigint references issues (id) on delete cascade;
+alter table issue_photos add column if not exists full_path text;
+alter table issue_photos add column if not exists thumb_path text;
+alter table issue_photos add column if not exists full_deleted_at timestamptz;
+alter table issue_photos add column if not exists thumb_deleted_at timestamptz;
+alter table issue_photos add column if not exists created_at timestamptz not null default now();
+
+create index if not exists issue_photos_issue_id_idx on issue_photos (issue_id);
+create index if not exists issue_photos_created_at_idx on issue_photos (created_at);
+
+-- ---------------------------------------------------------------------------
 -- service_contacts: maintained by admin/superadmin, readable by all signed-in
 -- users, and surfaced on the issue form.
 -- ---------------------------------------------------------------------------
@@ -176,6 +201,7 @@ for each row execute function touch_service_contact_updated_at();
 alter table profiles enable row level security;
 alter table residents enable row level security;
 alter table issues enable row level security;
+alter table issue_photos enable row level security;
 alter table service_contacts enable row level security;
 
 drop policy if exists "A villa can read its own profile" on profiles;
@@ -194,6 +220,8 @@ drop policy if exists "A villa can add its own residents" on residents;
 drop policy if exists "Any signed-in account can read issues" on issues;
 drop policy if exists "Any signed-in account can raise an issue" on issues;
 drop policy if exists "Any signed-in account can update an issue" on issues;
+drop policy if exists "Any signed-in account can read issue photos" on issue_photos;
+drop policy if exists "Any signed-in account can add issue photos" on issue_photos;
 drop policy if exists "Any signed-in account can read service contacts" on service_contacts;
 drop policy if exists "Admins can edit service contacts" on service_contacts;
 
@@ -236,6 +264,14 @@ create policy "Any signed-in account can update an issue"
   on issues for update
   using (auth.uid() is not null);
 
+create policy "Any signed-in account can read issue photos"
+  on issue_photos for select
+  using (auth.uid() is not null);
+
+create policy "Any signed-in account can add issue photos"
+  on issue_photos for insert
+  with check (auth.uid() is not null);
+
 create policy "Any signed-in account can read service contacts"
   on service_contacts for select
   using (auth.uid() is not null);
@@ -259,3 +295,22 @@ begin
   end if;
 end
 $$;
+
+-- ---------------------------------------------------------------------------
+-- Storage bucket for issue photos and thumbnails
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('issue-photos', 'issue-photos', true)
+on conflict (id) do update
+set public = excluded.public;
+
+drop policy if exists "Public can view issue photos" on storage.objects;
+create policy "Public can view issue photos"
+  on storage.objects for select
+  using (bucket_id = 'issue-photos');
+
+drop policy if exists "Authenticated users can upload issue photos" on storage.objects;
+create policy "Authenticated users can upload issue photos"
+  on storage.objects for insert
+  to authenticated
+  with check (bucket_id = 'issue-photos');

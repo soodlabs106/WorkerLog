@@ -1,3 +1,7 @@
+import { supabase } from "./supabaseClient";
+
+export const ISSUE_PHOTO_BUCKET = "issue-photos";
+
 export function photoThumbSrc(photo) {
   if (!photo) return "";
   if (typeof photo === "string") return photo;
@@ -13,6 +17,59 @@ export function photoFullSrc(photo) {
 export function photoKey(photo, index) {
   const src = photoThumbSrc(photo) || photoFullSrc(photo);
   return `${src.slice(0, 32)}-${index}`;
+}
+
+export function dataUrlToBlob(dataUrl) {
+  const [header, content] = String(dataUrl || "").split(",");
+  const mime = header.match(/data:(.*?);base64/)?.[1] || "image/jpeg";
+  const binary = atob(content || "");
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return new Blob([bytes], { type: mime });
+}
+
+function storagePublicUrl(path) {
+  if (!path) return "";
+  return supabase.storage.from(ISSUE_PHOTO_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+export function normalizeIssuePhotoRow(row) {
+  const full = row.full_deleted_at ? "" : storagePublicUrl(row.full_path);
+  const thumb = row.thumb_deleted_at ? "" : storagePublicUrl(row.thumb_path || row.full_path);
+
+  if (!full && !thumb) return null;
+
+  return {
+    id: row.id,
+    full,
+    thumb,
+    fullDeletedAt: row.full_deleted_at,
+    thumbDeletedAt: row.thumb_deleted_at,
+  };
+}
+
+export function mergeIssuePhotoSources(issue) {
+  const storagePhotos = (issue.issue_photos || [])
+    .map(normalizeIssuePhotoRow)
+    .filter(Boolean);
+  const legacyPhotos = Array.isArray(issue.issue_photo_urls) ? issue.issue_photo_urls : [];
+
+  return {
+    ...issue,
+    display_photos: [...storagePhotos, ...legacyPhotos],
+  };
+}
+
+function randomToken() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+export function issuePhotoStoragePath(issueId, index, kind) {
+  return `${issueId}/${Date.now()}-${index + 1}-${randomToken()}-${kind}.jpg`;
 }
 
 function loadImage(file) {
