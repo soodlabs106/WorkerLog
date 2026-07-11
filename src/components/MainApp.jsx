@@ -238,17 +238,8 @@ export default function MainApp({ profile, residents }) {
       `Urgency: ${form.urgency}`,
       `Location: ${form.location}`,
       `Reporter: ${form.reporterName || "Guest"}`,
-      `Phone: ${form.reporterPhone || "Not shared"}`,
       `Details: ${form.description.trim()}`,
     ];
-
-    if (matchedContacts.length) {
-      lines.push("");
-      lines.push("Suggested contacts:");
-      matchedContacts.forEach((contact) => {
-        lines.push(`${contact.role}: ${contact.name} - ${contact.phone_number}`);
-      });
-    }
 
     try {
       await navigator.clipboard.writeText(lines.join("\n"));
@@ -303,21 +294,30 @@ export default function MainApp({ profile, residents }) {
   async function saveContacts(nextContacts) {
     setSavingContacts(true);
     setContactSaveError("");
+    const operations = await Promise.all(
+      nextContacts.map((contact, index) => {
+        const payload = {
+          service: contact.service.trim(),
+          role: contact.role.trim(),
+          name: contact.name.trim(),
+          phone_number: contact.phone_number.trim(),
+          photo_url: contact.photo_url?.trim() || null,
+          sort_order: index + 1,
+        };
 
-    const updates = await Promise.all(
-      nextContacts.map((contact) =>
-        supabase
-          .from("service_contacts")
-          .update({
-            name: contact.name.trim(),
-            phone_number: contact.phone_number.trim(),
-            photo_url: contact.photo_url?.trim() || null,
-          })
-          .eq("id", contact.id)
-      )
+        if (!payload.service || !payload.role || !payload.name || !payload.phone_number) {
+          return { error: { message: "Every contact must have service, role, name, and phone number." } };
+        }
+
+        if (contact.isNew || String(contact.id).startsWith("new-")) {
+          return supabase.from("service_contacts").insert(payload);
+        }
+
+        return supabase.from("service_contacts").update(payload).eq("id", contact.id);
+      })
     );
 
-    const failed = updates.find((result) => result.error);
+    const failed = operations.find((result) => result.error);
     setSavingContacts(false);
 
     if (failed?.error) {
@@ -420,10 +420,13 @@ export default function MainApp({ profile, residents }) {
     <div style={{ background: "var(--paper)", minHeight: "100vh", maxWidth: 480, margin: "0 auto", position: "relative", paddingBottom: 74 }}>
       <header style={{ padding: "16px 16px 12px", borderBottom: "1px solid var(--hairline)", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
-          <div style={{ fontFamily: "var(--f-mono)", fontSize: 10, letterSpacing: "0.12em", color: "var(--brass)", textTransform: "uppercase" }}>
-            Community maintenance
+          <div style={{ marginBottom: 6 }}>
+            <img
+              src="/brand/em2-resolve-community-maintenance-lockup.png"
+              alt="EM2 Resolve"
+              style={{ width: 164, height: "auto" }}
+            />
           </div>
-          <h1 style={{ fontFamily: "var(--f-display)", fontWeight: 700, fontSize: 22, margin: "2px 0 0" }}>EM2 Resolce</h1>
           <p style={{ fontSize: 12, color: "var(--ink-soft)", margin: "4px 0 0" }}>
             Signed in as {profileLabel(profile)}
           </p>

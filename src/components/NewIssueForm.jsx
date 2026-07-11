@@ -8,7 +8,7 @@ function ContactCard({ contact }) {
   return (
     <div style={{
       background: "var(--card)", border: "1px solid var(--hairline)", borderRadius: 10,
-      padding: "10px 12px", display: "flex", gap: 10, alignItems: "center",
+      padding: "10px 12px", display: "flex", gap: 10, alignItems: "center", minHeight: 92,
     }}>
       {contact.photo_url ? (
         <img
@@ -80,8 +80,8 @@ export default function NewIssueForm({
                 key={key}
                 onClick={() => setForm((current) => ({ ...current, category: key }))}
                 style={{
-                  display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minHeight: 72,
-                  padding: "8px 4px", borderRadius: 8, border: active ? "1.5px solid var(--brass)" : "1px solid var(--hairline)",
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, minHeight: 58,
+                  padding: "6px 4px", borderRadius: 8, border: active ? "1.5px solid var(--brass)" : "1px solid var(--hairline)",
                   background: active ? "#F3EBD6" : "var(--card)", color: "var(--ink)",
                 }}
               >
@@ -92,6 +92,24 @@ export default function NewIssueForm({
           })}
         </div>
       </Field>
+
+      {matchedServiceName && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Suggested contacts: {matchedServiceName}</div>
+          {serviceContacts.length > 0 ? (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+              {serviceContacts.map((contact) => <ContactCard key={contact.id} contact={contact} />)}
+            </div>
+          ) : (
+            <div style={{
+              background: "var(--card)", border: "1px dashed var(--hairline)", borderRadius: 10,
+              padding: "12px", fontSize: 12, color: "var(--ink-soft)",
+            }}>
+              No contacts have been added for this service yet.
+            </div>
+          )}
+        </div>
+      )}
 
       <Field label="Urgency">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6 }}>
@@ -165,24 +183,6 @@ export default function NewIssueForm({
         <Field label="Contact phone">
           <input placeholder="9845000000" value={form.reporterPhone} onChange={set("reporterPhone")} style={inputStyle} />
         </Field>
-      )}
-
-      {matchedServiceName && (
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Suggested contacts: {matchedServiceName}</div>
-          {serviceContacts.length > 0 ? (
-            <div style={{ display: "grid", gap: 8 }}>
-              {serviceContacts.map((contact) => <ContactCard key={contact.id} contact={contact} />)}
-            </div>
-          ) : (
-            <div style={{
-              background: "var(--card)", border: "1px dashed var(--hairline)", borderRadius: 10,
-              padding: "12px", fontSize: 12, color: "var(--ink-soft)",
-            }}>
-              No contacts have been added for this service yet.
-            </div>
-          )}
-        </div>
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>

@@ -41,17 +41,11 @@ export default function Login() {
       <div style={{ width: "100%", maxWidth: 380 }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
           <img
-            src="/brand/em2-resolve-logo-corrected.png"
+            src="/brand/em2-resolve-community-maintenance-lockup.png"
             alt="EM2 Resolve"
-            style={{ width: 126, height: "auto" }}
+            style={{ width: 188, height: "auto" }}
           />
         </div>
-        <div style={{ fontFamily: "var(--f-mono)", fontSize: 11, letterSpacing: "0.12em", color: "var(--brass)", textTransform: "uppercase", textAlign: "center" }}>
-          Community maintenance
-        </div>
-        <h1 style={{ fontFamily: "var(--f-display)", fontWeight: 700, fontSize: 26, margin: "4px 0 20px", textAlign: "center" }}>
-          EM2 Resolve
-        </h1>
 
         <form onSubmit={handleSubmit} style={{ background: "var(--card)", border: "1px solid var(--hairline)", borderRadius: 12, padding: "20px 18px" }}>
           <Field label="Account" hint="Use 106, villa-106, FacilityManager, or superadmin">

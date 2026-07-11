@@ -3,7 +3,7 @@ import { Wrench, Zap, Bug, HelpCircle } from "lucide-react";
 export const CATEGORIES = [
   { key: "plumbing", label: "Plumbing", Icon: Wrench },
   { key: "electrical", label: "Electrical", Icon: Zap },
-  { key: "pest", label: "Snake / pest", Icon: Bug },
+  { key: "pest", label: "Snake", Icon: Bug },
   { key: "general", label: "General", Icon: HelpCircle },
 ];
 
