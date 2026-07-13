@@ -27,6 +27,21 @@
 
 Deno.serve(async (req) => {
   try {
+    if (req.method !== "POST") {
+      return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405 });
+    }
+
+    const webhookSecret = Deno.env.get("NOTIFY_WHATSAPP_WEBHOOK_SECRET");
+    const providedSecret = req.headers.get("x-webhook-secret") || req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+
+    if (!webhookSecret) {
+      return new Response(JSON.stringify({ error: "Missing NOTIFY_WHATSAPP_WEBHOOK_SECRET secret" }), { status: 500 });
+    }
+
+    if (!providedSecret || providedSecret !== webhookSecret) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+    }
+
     const payload = await req.json();
     const record = payload.record;
 

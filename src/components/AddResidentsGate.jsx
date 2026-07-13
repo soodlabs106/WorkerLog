@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Users, Plus, Trash2, AlertTriangle } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
+import { toUserErrorMessage } from "../lib/security";
 import { Field, inputStyle } from "./Shared";
 
 export default function AddResidentsGate({ villaId, villaLabel, onDone }) {
@@ -36,7 +37,8 @@ export default function AddResidentsGate({ villaId, villaLabel, onDone }) {
     );
     setSubmitting(false);
     if (insertError) {
-      setError(insertError.message);
+      console.error("Could not save residents", insertError);
+      setError(toUserErrorMessage(insertError, "Could not save residents right now. Please try again."));
       return;
     }
     await onDone();

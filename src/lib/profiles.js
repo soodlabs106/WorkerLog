@@ -18,6 +18,13 @@ export function canResetPasswords(profile) {
   return isSuperAdminProfile(profile);
 }
 
+export function canResolveIssue(profile, issue) {
+  if (!profile || !issue) return false;
+  if (isAdminProfile(profile) || isSuperAdminProfile(profile)) return true;
+  const actorVilla = profile.villa_number || profile.username;
+  return Boolean(actorVilla && issue.reported_by_villa === actorVilla);
+}
+
 export function profileLabel(profile) {
   if (!profile) return "";
   return profile.display_name || profile.villa_number || profile.username || "Account";

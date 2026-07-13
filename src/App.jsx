@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { isVillaProfile, profileLabel } from "./lib/profiles";
+import { toUserErrorMessage } from "./lib/security";
 import Login from "./components/Login";
 import ChangePasswordGate from "./components/ChangePasswordGate";
 import AddResidentsGate from "./components/AddResidentsGate";
@@ -78,7 +79,8 @@ export default function App() {
       if (loadId !== activeLoadRef.current) return;
 
       if (residentsError) {
-        setError(residentsError.message);
+        console.error("Could not load residents", residentsError);
+        setError("Could not load your residents right now. Please try again.");
         setLoadingProfile(false);
         return;
       }
@@ -89,7 +91,8 @@ export default function App() {
       setLoadingProfile(false);
     } catch (loadError) {
       if (loadId !== activeLoadRef.current) return;
-      setError(loadError.message || "Could not load your account.");
+      console.error("Could not load account", loadError);
+      setError(toUserErrorMessage(loadError, "Could not load your account right now. Please try again."));
       setLoadingProfile(false);
     }
   }, [withTimeout]);

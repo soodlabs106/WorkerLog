@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { Plus, ClipboardList, BarChart3, LogOut, Loader2, ShieldCheck } from "lucide-react";
-import { supabase, supabaseAnonKey, supabaseUrl } from "../lib/supabaseClient";
+import { supabase } from "../lib/supabaseClient";
 import { sortServiceContacts, urgencyRank, serviceForCategory } from "../lib/format";
-import { buildIssuePhotoPayload, dataUrlToBlob, ISSUE_PHOTO_BUCKET, issuePhotoStoragePath, mergeIssuePhotoSources } from "../lib/photos";
-import { canManageContacts, isSuperAdminProfile, profileLabel } from "../lib/profiles";
+import { buildIssuePhotoPayload, collectIssuePhotoPaths, dataUrlToBlob, fetchSignedIssuePhotoUrls, ISSUE_PHOTO_BUCKET, issuePhotoStoragePath, mergeIssuePhotoSources } from "../lib/photos";
+import { canManageContacts, canResolveIssue, isSuperAdminProfile, profileLabel } from "../lib/profiles";
+import { toUserErrorMessage } from "../lib/security";
 import { NavButton } from "./Shared";
 import NewIssueForm from "./NewIssueForm";
 import { TicketsTab } from "./TicketsTab";
@@ -115,13 +116,11 @@ export default function MainApp({ profile, residents }) {
       location,
       reported_by_villa,
       reporter_name,
-      reporter_phone,
       status,
       created_at,
       resolved_at,
       resolution_notes,
       resolved_by,
-      issue_photo_urls,
       issue_photos(id, issue_id, full_path, thumb_path, full_deleted_at, thumb_deleted_at, created_at)
     `;
     const baseSelect = `
@@ -132,13 +131,11 @@ export default function MainApp({ profile, residents }) {
       location,
       reported_by_villa,
       reporter_name,
-      reporter_phone,
       status,
       created_at,
       resolved_at,
       resolution_notes,
-      resolved_by,
-      issue_photo_urls
+      resolved_by
     `;
 
     let { data, error } = await supabase
@@ -156,10 +153,21 @@ export default function MainApp({ profile, residents }) {
     }
 
     if (error) {
-      setIssuesError(error.message);
+      console.error("Could not load issues", error);
+      setIssuesError("Could not refresh tickets right now. Please try again.");
     } else {
-      setIssues((data || []).map(mergeIssuePhotoSources));
-      setIssuesError("");
+      let signedUrls = {};
+      let nextIssuesError = "";
+
+      try {
+        signedUrls = await fetchSignedIssuePhotoUrls(collectIssuePhotoPaths(data || []));
+      } catch (photoError) {
+        console.error("Could not load secure ticket photos", photoError);
+        nextIssuesError = "Ticket photos could not be loaded right now.";
+      }
+
+      setIssues((data || []).map((issue) => mergeIssuePhotoSources(issue, signedUrls)));
+      setIssuesError(nextIssuesError);
       setIssuesLoadedOnce(true);
     }
     setIssuesLoading(false);
@@ -201,7 +209,8 @@ export default function MainApp({ profile, residents }) {
       await Promise.all([fetchContacts(), fetchDirectory()]);
       setReady(true);
     } catch (error) {
-      setLoadError(error.message || String(error));
+      console.error("Could not load app data", error);
+      setLoadError("Could not load the register right now. Please try again.");
       setReady(true);
     }
   }, [fetchContacts, fetchDirectory]);
@@ -292,7 +301,8 @@ export default function MainApp({ profile, residents }) {
     setSubmitting(false);
 
     if (error) {
-      setFormError(error.message);
+      console.error("Could not raise issue", error);
+      setFormError("Could not raise the ticket right now. Please try again.");
       return;
     }
 
@@ -337,7 +347,8 @@ export default function MainApp({ profile, residents }) {
       await navigator.clipboard.writeText(lines.join("\n"));
       setToast("Issue message copied to clipboard");
     } catch (error) {
-      setFormError(`Could not copy to clipboard: ${error.message || error}`);
+      console.error("Could not copy issue message", error);
+      setFormError("Could not copy the message to your clipboard.");
     } finally {
       setCopyingMessage(false);
     }
@@ -418,7 +429,8 @@ export default function MainApp({ profile, residents }) {
       setForm((current) => ({ ...current, issuePhotos: [...(current.issuePhotos || []), ...nextPhotos] }));
       setFormError("");
     } catch (error) {
-      setFormError(error.message || String(error));
+      console.error("Could not process issue photo", error);
+      setFormError(toUserErrorMessage(error, "Issue photos must be JPG, PNG, or WebP files under 3 MB."));
     }
   }
 
@@ -430,6 +442,10 @@ export default function MainApp({ profile, residents }) {
   }
 
   function openResolveModal(issue) {
+    if (!canResolveIssue(profile, issue)) {
+      setToast("You can resolve tickets raised from your own villa only.");
+      return;
+    }
     setResolveTarget(issue);
     setResolveNotes("");
     setResolveWorker("");
@@ -439,6 +455,10 @@ export default function MainApp({ profile, residents }) {
 
   async function confirmResolve() {
     if (!resolveTarget) return;
+    if (!canResolveIssue(profile, resolveTarget)) {
+      setResolveError("You can resolve tickets raised from your own villa only.");
+      return;
+    }
     if (STAFF_PIN && profile.role === "villa" && resolvePin !== STAFF_PIN) {
       setResolveError("That PIN does not match. Ask whoever manages the register.");
       return;
@@ -455,7 +475,8 @@ export default function MainApp({ profile, residents }) {
       .eq("id", resolveTarget.id);
 
     if (error) {
-      setResolveError(error.message);
+      console.error("Could not resolve issue", error);
+      setResolveError("Could not close the ticket right now. Please try again.");
       return;
     }
 
@@ -507,7 +528,8 @@ export default function MainApp({ profile, residents }) {
     setSavingContacts(false);
 
     if (failed?.error || deleteResult.error) {
-      setContactSaveError(failed?.error?.message || deleteResult.error.message);
+      console.error("Could not save service contacts", failed?.error || deleteResult.error);
+      setContactSaveError("Could not save service contacts right now. Please try again.");
       return;
     }
 
@@ -543,16 +565,12 @@ export default function MainApp({ profile, residents }) {
       setToast(`Password reset for ${username}`);
       fetchDirectory();
     } catch (error) {
-      setToast(error.message || "Password reset failed");
+      console.error("Password reset failed", error);
+      setToast(toUserErrorMessage(error, "Password reset failed. Please try again."));
     } finally {
       setResettingUsername("");
     }
   }
-
-  const whatsappLink = (issue, message) => {
-    const phone = (issue.reporter_phone || "").replace(/[^0-9]/g, "");
-    return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-  };
 
   if (!ready) {
     return (
@@ -628,7 +646,7 @@ export default function MainApp({ profile, residents }) {
             error={issuesError}
             now={now}
             onResolve={openResolveModal}
-            whatsappLink={whatsappLink}
+            canResolveIssue={(issue) => canResolveIssue(profile, issue)}
           />
         )}
 

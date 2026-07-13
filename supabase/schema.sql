@@ -164,12 +164,54 @@ as $$
   select villa_number from profiles where id = auth.uid()
 $$;
 
+create or replace function can_update_issue(issue_reported_by_villa text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+set row_security = off
+as $$
+  select
+    current_profile_role() in ('admin', 'superadmin')
+    or issue_reported_by_villa = current_profile_villa()
+$$;
+
+create or replace function can_view_issue_photo(target_issue_id bigint)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+set row_security = off
+as $$
+  select exists (
+    select 1
+    from issues
+    where id = target_issue_id
+      and (
+        current_profile_role() in ('admin', 'superadmin')
+        or reported_by_villa = current_profile_villa()
+      )
+  )
+$$;
+
 create or replace function touch_service_contact_updated_at()
 returns trigger
 language plpgsql
 as $$
 begin
   new.updated_at = now();
+  return new;
+end;
+$$;
+
+create or replace function clear_legacy_issue_photo_urls()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.issue_photo_urls = '[]'::jsonb;
   return new;
 end;
 $$;
@@ -194,6 +236,11 @@ drop trigger if exists service_contacts_touch_updated_at on service_contacts;
 create trigger service_contacts_touch_updated_at
 before update on service_contacts
 for each row execute function touch_service_contact_updated_at();
+
+drop trigger if exists issues_clear_legacy_photo_urls on issues;
+create trigger issues_clear_legacy_photo_urls
+before insert or update on issues
+for each row execute function clear_legacy_issue_photo_urls();
 
 -- ---------------------------------------------------------------------------
 -- Row Level Security
@@ -262,11 +309,12 @@ create policy "Any signed-in account can raise an issue"
 
 create policy "Any signed-in account can update an issue"
   on issues for update
-  using (auth.uid() is not null);
+  using (can_update_issue(reported_by_villa))
+  with check (can_update_issue(reported_by_villa));
 
-create policy "Any signed-in account can read issue photos"
+create policy "Authorized users can read issue photos"
   on issue_photos for select
-  using (auth.uid() is not null);
+  using (can_view_issue_photo(issue_id));
 
 create policy "Any signed-in account can add issue photos"
   on issue_photos for insert
@@ -280,6 +328,10 @@ create policy "Admins can edit service contacts"
   on service_contacts for all
   using (current_profile_role() in ('admin', 'superadmin'))
   with check (current_profile_role() in ('admin', 'superadmin'));
+
+revoke select (reporter_phone, issue_photo_urls) on public.issues from public;
+revoke select (reporter_phone, issue_photo_urls) on public.issues from anon;
+revoke select (reporter_phone, issue_photo_urls) on public.issues from authenticated;
 
 -- Enable realtime so the app updates live across everyone's phones
 do $$
@@ -300,15 +352,12 @@ $$;
 -- Storage bucket for issue photos and thumbnails
 -- ---------------------------------------------------------------------------
 insert into storage.buckets (id, name, public)
-values ('issue-photos', 'issue-photos', true)
+values ('issue-photos', 'issue-photos', false)
 on conflict (id) do update
 set public = excluded.public;
 
 drop policy if exists "Public can view issue photos" on storage.objects;
-create policy "Public can view issue photos"
-  on storage.objects for select
-  using (bucket_id = 'issue-photos');
-
+drop policy if exists "Authenticated users can view issue photos" on storage.objects;
 drop policy if exists "Authenticated users can upload issue photos" on storage.objects;
 create policy "Authenticated users can upload issue photos"
   on storage.objects for insert

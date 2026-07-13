@@ -1,0 +1,21 @@
+{
+  "name": "EM2 Resolve",
+  "short_name": "EM2 Resolve",
+  "description": "Raise maintenance issues, track fix time, and monitor service performance.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ECEDE6",
+  "theme_color": "#ECEDE6",
+  "icons": [
+    {
+      "src": "/brand/em2-resolve-app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/brand/em2-resolve-favicon.ico",
+      "sizes": "256x256 128x128 64x64 48x48 32x32 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}

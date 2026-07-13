@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { ShieldCheck, AlertTriangle } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
+import { toUserErrorMessage } from "../lib/security";
 import { Field, inputStyle } from "./Shared";
 
 export default function ChangePasswordGate({ villaLabel, onDone }) {
@@ -24,7 +25,8 @@ export default function ChangePasswordGate({ villaLabel, onDone }) {
     const { error: updateError } = await supabase.auth.updateUser({ password });
     if (updateError) {
       setSubmitting(false);
-      setError(updateError.message);
+      console.error("Could not update password", updateError);
+      setError(toUserErrorMessage(updateError, "Could not update your password right now. Please try again."));
       return;
     }
     await onDone();

@@ -6,16 +6,31 @@ const PHOTO_CLEANUP_SECRET = Deno.env.get("PHOTO_CLEANUP_SECRET") ?? "";
 const ISSUE_PHOTO_BUCKET = "issue-photos";
 const FULL_RETENTION_DAYS = 5;
 const THUMB_RETENTION_DAYS = 30;
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") ??
+  "https://em2-resolve.netlify.app,http://localhost:4318,http://127.0.0.1:4318,http://localhost:4319,http://127.0.0.1:4319")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const baseCorsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-function json(body: unknown, status = 200) {
+function corsHeaders(origin: string | null) {
+  return {
+    ...baseCorsHeaders,
+    ...(origin ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {}),
+  };
+}
+
+function isAllowedOrigin(origin: string | null) {
+  return !origin || ALLOWED_ORIGINS.includes(origin);
+}
+
+function json(body: unknown, status = 200, origin: string | null = null) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json", ...corsHeaders },
+    headers: { "Content-Type": "application/json", ...corsHeaders(origin) },
   });
 }
 
@@ -90,21 +105,27 @@ async function cleanupThumbnails() {
 }
 
 Deno.serve(async (req) => {
+  const origin = req.headers.get("Origin");
+
+  if (!isAllowedOrigin(origin)) {
+    return json({ error: "Origin not allowed" }, 403);
+  }
+
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: corsHeaders(origin) });
   }
 
   if (req.method !== "POST") {
-    return json({ error: "Method not allowed" }, 405);
+    return json({ error: "Method not allowed" }, 405, origin);
   }
 
   if (!PHOTO_CLEANUP_SECRET) {
-    return json({ error: "PHOTO_CLEANUP_SECRET is not configured" }, 500);
+    return json({ error: "PHOTO_CLEANUP_SECRET is not configured" }, 500, origin);
   }
 
   const authHeader = req.headers.get("Authorization") ?? "";
   if (authHeader !== `Bearer ${PHOTO_CLEANUP_SECRET}`) {
-    return json({ error: "Unauthorized" }, 401);
+    return json({ error: "Unauthorized" }, 401, origin);
   }
 
   try {
@@ -119,8 +140,8 @@ Deno.serve(async (req) => {
       thumbsDeleted,
       fullRetentionDays: FULL_RETENTION_DAYS,
       thumbRetentionDays: THUMB_RETENTION_DAYS,
-    });
+    }, 200, origin);
   } catch (error) {
-    return json({ error: String(error) }, 500);
+    return json({ error: String(error) }, 500, origin);
   }
 });

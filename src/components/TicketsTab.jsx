@@ -1,9 +1,9 @@
 import React from "react";
-import { MapPin, User, Phone, Clock, CheckCircle2, ChevronRight, Inbox } from "lucide-react";
+import { MapPin, User, Clock, CheckCircle2, Inbox } from "lucide-react";
 import { catInfo, urgInfo, ticketNo, formatElapsed } from "../lib/format";
 import { photoFullSrc, photoKey, photoThumbSrc } from "../lib/photos";
 
-export function TicketsTab({ filter, setFilter, open, resolved, loading, error, now, onResolve, whatsappLink }) {
+export function TicketsTab({ filter, setFilter, open, resolved, loading, error, now, onResolve, canResolveIssue }) {
   const list = filter === "open" ? open : resolved;
   return (
     <div>
@@ -40,14 +40,20 @@ export function TicketsTab({ filter, setFilter, open, resolved, loading, error, 
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {list.map((issue) => (
-          <TicketCard key={issue.id} issue={issue} now={now} onResolve={onResolve} whatsappLink={whatsappLink} />
+          <TicketCard
+            key={issue.id}
+            issue={issue}
+            now={now}
+            onResolve={onResolve}
+            canResolve={canResolveIssue(issue)}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function TicketCard({ issue, now, onResolve, whatsappLink }) {
+function TicketCard({ issue, now, onResolve, canResolve }) {
   const { Icon, label: catLabel } = catInfo(issue.category);
   const urg = urgInfo(issue.urgency);
   const isOpen = issue.status !== "resolved";
@@ -76,7 +82,9 @@ function TicketCard({ issue, now, onResolve, whatsappLink }) {
 
       {issue.display_photos?.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 10 }}>
-          {issue.display_photos.map((photo, index) => (
+          {issue.display_photos
+            .filter((photo) => photoThumbSrc(photo) || photoFullSrc(photo))
+            .map((photo, index) => (
             <a
               key={`${issue.id}-${photoKey(photo, index)}`}
               href={photoFullSrc(photo)}
@@ -93,29 +101,24 @@ function TicketCard({ issue, now, onResolve, whatsappLink }) {
       <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", fontSize: 12, color: "var(--ink-soft)", marginBottom: 10 }}>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}><MapPin size={12} /> {issue.location}</span>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}><User size={12} /> {issue.reporter_name}</span>
-        {issue.reporter_phone && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Phone size={12} /> {issue.reporter_phone}</span>}
       </div>
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: "var(--f-mono)", fontSize: 13, color: isOpen ? "var(--rust)" : "var(--moss)" }}>
           <Clock size={13} /> {formatElapsed(elapsedMs)} {isOpen ? "open" : "to close"}
         </span>
-        {isOpen ? (
+        {isOpen && canResolve ? (
           <button onClick={() => onResolve(issue)} style={{
             display: "flex", alignItems: "center", gap: 5, background: "var(--moss)", color: "#fff",
             border: "none", borderRadius: 6, padding: "7px 12px", fontSize: 12, fontWeight: 600,
           }}>
             <CheckCircle2 size={14} /> Mark resolved
           </button>
-        ) : (
-          issue.reporter_phone && (
-            <a href={whatsappLink(issue, `Hi ${issue.reporter_name}, your ${catLabel.toLowerCase()} issue (${ticketNo(issue.id)}) has been resolved. Thanks for your patience!`)}
-              target="_blank" rel="noopener noreferrer"
-              style={{ fontSize: 12, color: "var(--slate)", textDecoration: "none", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
-              Notify on WhatsApp <ChevronRight size={12} />
-            </a>
-          )
-        )}
+        ) : isOpen ? (
+          <span style={{ fontSize: 12, color: "var(--ink-soft)", fontWeight: 600 }}>
+            Admin can resolve
+          </span>
+        ) : null}
       </div>
 
       {!isOpen && issue.resolution_notes && (

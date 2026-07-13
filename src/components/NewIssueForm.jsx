@@ -2,18 +2,20 @@ import React from "react";
 import { AlertTriangle, ChevronRight, Copy, ImagePlus, Phone, RotateCcw, X } from "lucide-react";
 import { CATEGORIES, URGENCY } from "../lib/format";
 import { photoKey, photoThumbSrc } from "../lib/photos";
+import { safeImageSrc } from "../lib/security";
 import { VILLAS, villaLabel } from "../lib/villas";
 import { Field, inputStyle } from "./Shared";
 
 function ContactCard({ contact }) {
+  const photoSrc = safeImageSrc(contact.photo_url);
   return (
     <div style={{
       background: "var(--card)", border: "1px solid var(--hairline)", borderRadius: 10,
       padding: "10px 12px", display: "flex", gap: 10, alignItems: "center", minHeight: 92,
     }}>
-      {contact.photo_url ? (
+      {photoSrc ? (
         <img
-          src={contact.photo_url}
+          src={photoSrc}
           alt={contact.name}
           style={{ width: 42, height: 42, borderRadius: 10, objectFit: "cover", border: "1px solid var(--hairline)" }}
         />

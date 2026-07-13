@@ -1,15 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Pencil, Phone, Plus, Save, Trash2, Upload, X } from "lucide-react";
+import { assertAllowedImageFile, buildOptimizedImageDataUrl } from "../lib/photos";
+import { safeImageSrc } from "../lib/security";
 import { Field, inputStyle } from "./Shared";
 
 const ROLE_OPTIONS = ["Primary", "Secondary", "Other"];
 const CUSTOM_SERVICE_SENTINEL = "__custom_service__";
 
 function ContactAvatar({ name, photoUrl }) {
-  if (photoUrl) {
+  const safePhotoUrl = safeImageSrc(photoUrl);
+
+  if (safePhotoUrl) {
     return (
       <img
-        src={photoUrl}
+        src={safePhotoUrl}
         alt={name}
         style={{ width: 46, height: 46, borderRadius: 12, objectFit: "cover", border: "1px solid var(--hairline)" }}
       />
@@ -81,15 +85,6 @@ function modalCardStyle() {
   };
 }
 
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("Could not read that image file."));
-    reader.readAsDataURL(file);
-  });
-}
-
 function ContactModal({
   title,
   draftContact,
@@ -110,17 +105,15 @@ function ContactModal({
 
   async function handlePhotoUpload(file) {
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setLocalError("Please choose an image file.");
-      return;
-    }
 
     try {
-      const photoUrl = await readFileAsDataUrl(file);
+      assertAllowedImageFile(file, 2 * 1024 * 1024, "Service contact photo");
+      const photoUrl = await buildOptimizedImageDataUrl(file, { maxDimension: 512, quality: 0.76 });
       setDraftContact((current) => ({ ...current, photo_url: photoUrl }));
       setLocalError("");
     } catch (error) {
-      setLocalError(error.message || String(error));
+      console.error("Could not process service contact photo", error);
+      setLocalError(error.message || "Could not process that image.");
     }
   }
 
@@ -206,7 +199,7 @@ function ContactModal({
             </Field>
           </div>
 
-          <Field label="Photo upload" hint="You can upload or replace the service contact image here.">
+          <Field label="Photo upload" hint="Upload a JPG, PNG, or WebP image up to 2 MB. SVG is blocked for safety.">
             <label style={{
               display: "flex",
               alignItems: "center",
