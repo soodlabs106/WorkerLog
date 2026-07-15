@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { Plus, ClipboardList, BarChart3, LogOut, Loader2, ShieldCheck } from "lucide-react";
+import { Plus, ClipboardList, BarChart3, LogOut, Loader2, ShieldCheck, ArrowUpDown } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
-import { sortServiceContacts, urgencyRank, serviceForCategory } from "../lib/format";
+import { sortServiceContacts, serviceForCategory } from "../lib/format";
 import { buildIssuePhotoPayload, collectIssuePhotoPaths, dataUrlToBlob, fetchSignedIssuePhotoUrls, ISSUE_PHOTO_BUCKET, issuePhotoStoragePath, mergeIssuePhotoSources } from "../lib/photos";
-import { canManageContacts, canResolveIssue, isSuperAdminProfile, profileLabel } from "../lib/profiles";
+import { canAssignIssue, canFollowUpIssue, canManageContacts, canResolveIssue, isSuperAdminProfile, profileLabel } from "../lib/profiles";
 import { toUserErrorMessage } from "../lib/security";
 import { NavButton } from "./Shared";
 import NewIssueForm from "./NewIssueForm";
 import { TicketsTab } from "./TicketsTab";
 import ResolveModal from "./ResolveModal";
+import AssignModal from "./AssignModal";
 import Dashboard from "./Dashboard";
 import AdminTab from "./AdminTab";
 
@@ -67,6 +68,7 @@ export default function MainApp({ profile, residents }) {
   const [issuesLoadedOnce, setIssuesLoadedOnce] = useState(false);
   const [tab, setTab] = useState("new");
   const [ticketFilter, setTicketFilter] = useState("open");
+  const [ticketSort, setTicketSort] = useState("newest");
   const [now, setNow] = useState(Date.now());
   const [toast, setToast] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -77,6 +79,9 @@ export default function MainApp({ profile, residents }) {
   const [resolveWorker, setResolveWorker] = useState("");
   const [resolvePin, setResolvePin] = useState("");
   const [resolveError, setResolveError] = useState("");
+  const [assignTarget, setAssignTarget] = useState(null);
+  const [assignContactId, setAssignContactId] = useState("");
+  const [assignError, setAssignError] = useState("");
 
   const [form, setForm] = useState(() => emptyForm(profile, residents));
   const [formError, setFormError] = useState("");
@@ -86,16 +91,41 @@ export default function MainApp({ profile, residents }) {
   const [resettingUsername, setResettingUsername] = useState("");
 
   const matchedServiceName = serviceForCategory(form.category);
+  const matchesServiceName = useCallback((contact, serviceName) => {
+    if (!contact?.service || !serviceName) return false;
+
+    const normalize = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+    const contactService = normalize(contact.service);
+    const expectedService = normalize(serviceName);
+
+    return contactService === expectedService
+      || contactService.startsWith(expectedService)
+      || expectedService.startsWith(contactService);
+  }, []);
   const matchedContacts = useMemo(
-    () => sortServiceContacts(contacts.filter((contact) => matchedServiceName && contact.service === matchedServiceName)),
-    [contacts, matchedServiceName]
+    () => sortServiceContacts(contacts.filter((contact) => matchesServiceName(contact, matchedServiceName))),
+    [contacts, matchedServiceName, matchesServiceName]
   );
   const resolveWorkerOptions = useMemo(() => {
     if (!resolveTarget) return [];
     const serviceName = serviceForCategory(resolveTarget.category);
     if (!serviceName) return [];
-    return sortServiceContacts(contacts.filter((contact) => contact.service === serviceName));
-  }, [contacts, resolveTarget]);
+    return sortServiceContacts(contacts.filter((contact) => matchesServiceName(contact, serviceName)));
+  }, [contacts, matchesServiceName, resolveTarget]);
+  const assignWorkerOptions = useMemo(() => {
+    if (!assignTarget) return [];
+    const serviceName = serviceForCategory(assignTarget.category);
+    const relevantContacts = serviceName
+      ? contacts.filter((contact) => matchesServiceName(contact, serviceName))
+      : contacts;
+    return sortServiceContacts(relevantContacts);
+  }, [assignTarget, contacts, matchesServiceName]);
+  const linkedTicketId = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    const raw = new URLSearchParams(window.location.search).get("ticket");
+    const nextId = Number(raw);
+    return Number.isFinite(nextId) && nextId > 0 ? nextId : null;
+  }, []);
   const resetPasswordEndpoint = "/api/admin-reset-password";
   const serviceTypeOptions = useMemo(() => {
     const base = ["Electrician", "Plumber", "Snake Catcher"];
@@ -117,6 +147,12 @@ export default function MainApp({ profile, residents }) {
       reported_by_villa,
       reporter_name,
       status,
+      assigned_service_contact_id,
+      assigned_service_contact_name,
+      assigned_by,
+      assigned_at,
+      follow_up_count,
+      last_followed_up_at,
       created_at,
       resolved_at,
       resolution_notes,
@@ -132,6 +168,12 @@ export default function MainApp({ profile, residents }) {
       reported_by_villa,
       reporter_name,
       status,
+      assigned_service_contact_id,
+      assigned_service_contact_name,
+      assigned_by,
+      assigned_at,
+      follow_up_count,
+      last_followed_up_at,
       created_at,
       resolved_at,
       resolution_notes,
@@ -239,6 +281,21 @@ export default function MainApp({ profile, residents }) {
   }, [fetchIssues, issuesLoadedOnce, issuesLoading, tab]);
 
   useEffect(() => {
+    if (!linkedTicketId || !issues.length) return;
+    const target = issues.find((issue) => issue.id === linkedTicketId);
+    if (!target) return;
+
+    setTab("tickets");
+    setTicketFilter(target.status === "resolved" ? "resolved" : "open");
+
+    const timer = setTimeout(() => {
+      document.getElementById(`ticket-${linkedTicketId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 180);
+
+    return () => clearTimeout(timer);
+  }, [issues, linkedTicketId]);
+
+  useEffect(() => {
     setForm(emptyForm(profile, residents));
   }, [profile, residents]);
 
@@ -259,18 +316,43 @@ export default function MainApp({ profile, residents }) {
     return () => clearTimeout(timer);
   }, [contactSaveSuccess]);
 
+  const buildTicketUrl = useCallback((issueId) => {
+    if (typeof window === "undefined") return `?ticket=${issueId}`;
+    const url = new URL(window.location.href);
+    url.searchParams.set("ticket", String(issueId));
+    return url.toString();
+  }, []);
+
+  const createStoredNotification = useCallback(async (issueId, eventType) => {
+    const { error } = await supabase.rpc("create_issue_notifications", {
+      target_issue_id: issueId,
+      target_event_type: eventType,
+      target_ticket_url: buildTicketUrl(issueId),
+    });
+
+    if (error) throw error;
+  }, [buildTicketUrl]);
+
   const openIssues = useMemo(
-    () => issues
-      .filter((issue) => issue.status !== "resolved")
-      .sort((a, b) => urgencyRank[a.urgency] - urgencyRank[b.urgency] || new Date(a.created_at) - new Date(b.created_at)),
-    [issues]
+    () => {
+      const filtered = issues.filter((issue) => issue.status !== "resolved");
+      return filtered.sort((a, b) => {
+        const timeDiff = new Date(a.created_at) - new Date(b.created_at);
+        return ticketSort === "newest" ? -timeDiff : timeDiff;
+      });
+    },
+    [issues, ticketSort]
   );
 
   const resolvedIssues = useMemo(
-    () => issues
-      .filter((issue) => issue.status === "resolved")
-      .sort((a, b) => new Date(b.resolved_at) - new Date(a.resolved_at)),
-    [issues]
+    () => {
+      const filtered = issues.filter((issue) => issue.status === "resolved");
+      return filtered.sort((a, b) => {
+        const timeDiff = new Date(a.resolved_at || a.created_at) - new Date(b.resolved_at || b.created_at);
+        return ticketSort === "newest" ? -timeDiff : timeDiff;
+      });
+    },
+    [issues, ticketSort]
   );
 
   async function submitIssue(e) {
@@ -315,10 +397,18 @@ export default function MainApp({ profile, residents }) {
       }
     }
 
+    let notificationWarning = "";
+    try {
+      await createStoredNotification(data.id, "created");
+    } catch (notificationError) {
+      console.error("Could not create ticket notification", notificationError);
+      notificationWarning = "Notification could not be prepared";
+    }
+
     setForm(emptyForm(profile, residents));
     setToast(
-      photoWarning
-        ? `Ticket #${String(data.id).padStart(4, "0")} raised, but some photos could not be saved`
+      [photoWarning, notificationWarning].filter(Boolean).length
+        ? `Ticket #${String(data.id).padStart(4, "0")} raised, but ${[photoWarning, notificationWarning].filter(Boolean).join(" and ").toLowerCase()}`
         : `Ticket #${String(data.id).padStart(4, "0")} raised`
     );
     setTab("tickets");
@@ -453,6 +543,94 @@ export default function MainApp({ profile, residents }) {
     setResolveError("");
   }
 
+  function openAssignModal(issue) {
+    if (!canAssignIssue(profile)) {
+      setToast("Only the facility manager can assign a fixer.");
+      return;
+    }
+
+    setAssignTarget(issue);
+    setAssignContactId(issue.assigned_service_contact_id ? String(issue.assigned_service_contact_id) : "");
+    setAssignError("");
+  }
+
+  async function confirmAssign() {
+    if (!assignTarget) return;
+    if (!assignContactId) {
+      setAssignError("Choose a service contact first.");
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.rpc("assign_issue", {
+        target_issue_id: assignTarget.id,
+        target_contact_id: Number(assignContactId),
+      });
+
+      if (error) throw error;
+
+      if (data) {
+        setIssues((current) => current.map((issue) => (
+          issue.id === assignTarget.id
+            ? {
+                ...issue,
+                ...data,
+                display_photos: issue.display_photos,
+              }
+            : issue
+        )));
+      }
+
+      let notificationWarning = "";
+      try {
+        await createStoredNotification(assignTarget.id, "assigned");
+      } catch (notificationError) {
+        console.error("Could not create assignment notification", notificationError);
+        notificationWarning = " Notification could not be prepared.";
+      }
+
+      setAssignTarget(null);
+      setToast(`Ticket #${String(assignTarget.id).padStart(4, "0")} assigned.${notificationWarning}`);
+      fetchIssues();
+    } catch (error) {
+      console.error("Could not assign issue", error);
+      setAssignError(
+        error?.message === "Selected contact does not match the issue type"
+          ? "That contact does not match the issue type. Please pick another fixer or update the contact service type."
+          : toUserErrorMessage(error, error?.message || "Could not save the assignment right now. Please try again.")
+      );
+    }
+  }
+
+  async function followUpIssue(issue) {
+    if (!canFollowUpIssue(profile, issue)) {
+      setToast("Only the resident who raised this ticket can follow it up.");
+      return;
+    }
+
+    try {
+      const { error } = await supabase.rpc("follow_up_issue", {
+        target_issue_id: issue.id,
+      });
+
+      if (error) throw error;
+
+      let notificationWarning = "";
+      try {
+        await createStoredNotification(issue.id, "follow_up");
+      } catch (notificationError) {
+        console.error("Could not create follow-up notification", notificationError);
+        notificationWarning = " Notification could not be prepared.";
+      }
+
+      setToast(`Follow-up sent for ticket #${String(issue.id).padStart(4, "0")}.${notificationWarning}`);
+      fetchIssues();
+    } catch (error) {
+      console.error("Could not follow up issue", error);
+      setToast(toUserErrorMessage(error, "Could not follow up on the ticket right now. Please try again."));
+    }
+  }
+
   async function confirmResolve() {
     if (!resolveTarget) return;
     if (!canResolveIssue(profile, resolveTarget)) {
@@ -464,25 +642,30 @@ export default function MainApp({ profile, residents }) {
       return;
     }
 
-    const { error } = await supabase
-      .from("issues")
-      .update({
-        status: "resolved",
-        resolved_at: new Date().toISOString(),
-        resolution_notes: resolveNotes.trim() || null,
-        resolved_by: resolveWorker.trim() || profileLabel(profile),
-      })
-      .eq("id", resolveTarget.id);
+    try {
+      const { error } = await supabase.rpc("resolve_issue_workflow", {
+        target_issue_id: resolveTarget.id,
+        resolution_note: resolveNotes.trim() || null,
+        resolved_worker: resolveWorker.trim() || profileLabel(profile),
+      });
 
-    if (error) {
+      if (error) throw error;
+
+      let notificationWarning = "";
+      try {
+        await createStoredNotification(resolveTarget.id, "resolved");
+      } catch (notificationError) {
+        console.error("Could not create resolution notification", notificationError);
+        notificationWarning = " Notification could not be prepared.";
+      }
+
+      setToast(`Ticket #${String(resolveTarget.id).padStart(4, "0")} closed.${notificationWarning}`);
+      setResolveTarget(null);
+      fetchIssues();
+    } catch (error) {
       console.error("Could not resolve issue", error);
-      setResolveError("Could not close the ticket right now. Please try again.");
-      return;
+      setResolveError(toUserErrorMessage(error, "Could not close the ticket right now. Please try again."));
     }
-
-    setToast(`Ticket #${String(resolveTarget.id).padStart(4, "0")} closed`);
-    setResolveTarget(null);
-    fetchIssues();
   }
 
   function slugify(value) {
@@ -609,11 +792,33 @@ export default function MainApp({ profile, residents }) {
             Signed in as {profileLabel(profile)}
           </p>
         </div>
-        <button onClick={() => supabase.auth.signOut()} title="Sign out" style={{
-          background: "none", border: "1px solid var(--hairline)", borderRadius: 8, padding: 8, color: "var(--ink-soft)",
-        }}>
-          <LogOut size={16} />
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+          <button onClick={() => supabase.auth.signOut()} title="Sign out" style={{
+            background: "none", border: "1px solid var(--hairline)", borderRadius: 8, padding: 8, color: "var(--ink-soft)",
+          }}>
+            <LogOut size={16} />
+          </button>
+          {tab === "tickets" && (
+            <button
+              onClick={() => setTicketSort((current) => (current === "newest" ? "oldest" : "newest"))}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "7px 10px",
+                borderRadius: 999,
+                fontSize: 12,
+                fontWeight: 600,
+                border: "1px solid var(--hairline)",
+                background: "var(--card)",
+                color: "var(--ink)",
+              }}
+            >
+              <ArrowUpDown size={14} />
+              {ticketSort === "newest" ? "Newest first" : "Oldest first"}
+            </button>
+          )}
+        </div>
       </header>
 
       <main style={{ padding: "12px 12px 8px" }}>
@@ -646,7 +851,12 @@ export default function MainApp({ profile, residents }) {
             error={issuesError}
             now={now}
             onResolve={openResolveModal}
+            onAssign={openAssignModal}
+            onFollowUp={followUpIssue}
             canResolveIssue={(issue) => canResolveIssue(profile, issue)}
+            canAssignIssue={() => canAssignIssue(profile)}
+            canFollowUpIssue={(issue) => canFollowUpIssue(profile, issue)}
+            highlightedIssueId={linkedTicketId}
           />
         )}
 
@@ -712,6 +922,18 @@ export default function MainApp({ profile, residents }) {
           error={resolveError}
           onCancel={() => setResolveTarget(null)}
           onConfirm={confirmResolve}
+        />
+      )}
+
+      {assignTarget && (
+        <AssignModal
+          issue={assignTarget}
+          contacts={assignWorkerOptions}
+          selectedContactId={assignContactId}
+          setSelectedContactId={setAssignContactId}
+          error={assignError}
+          onCancel={() => setAssignTarget(null)}
+          onConfirm={confirmAssign}
         />
       )}
     </div>

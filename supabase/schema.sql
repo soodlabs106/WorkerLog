@@ -69,7 +69,13 @@ create table if not exists issues (
   reporter_name text not null,
   reporter_phone text,
   issue_photo_urls jsonb not null default '[]'::jsonb,
-  status text not null default 'open' check (status in ('open', 'resolved')),
+  status text not null default 'open' check (status in ('open', 'assigned', 'resolved')),
+  assigned_service_contact_id bigint,
+  assigned_service_contact_name text,
+  assigned_by text,
+  assigned_at timestamptz,
+  follow_up_count integer not null default 0,
+  last_followed_up_at timestamptz,
   created_at timestamptz not null default now(),
   resolved_at timestamptz,
   resolution_notes text,
@@ -79,10 +85,20 @@ create table if not exists issues (
 alter table issues drop constraint if exists issues_category_check;
 alter table issues add constraint issues_category_check
   check (category in ('plumbing', 'electrical', 'pest', 'general'));
+alter table issues drop constraint if exists issues_status_check;
+alter table issues add constraint issues_status_check
+  check (status in ('open', 'assigned', 'resolved'));
 alter table issues add column if not exists issue_photo_urls jsonb not null default '[]'::jsonb;
+alter table issues add column if not exists assigned_service_contact_id bigint;
+alter table issues add column if not exists assigned_service_contact_name text;
+alter table issues add column if not exists assigned_by text;
+alter table issues add column if not exists assigned_at timestamptz;
+alter table issues add column if not exists follow_up_count integer not null default 0;
+alter table issues add column if not exists last_followed_up_at timestamptz;
 
 create index if not exists issues_status_idx on issues (status);
 create index if not exists issues_created_at_idx on issues (created_at);
+create index if not exists issues_assigned_contact_idx on issues (assigned_service_contact_id);
 
 -- ---------------------------------------------------------------------------
 -- issue_photos: metadata for issue photo files stored in Supabase Storage.
@@ -108,6 +124,37 @@ alter table issue_photos add column if not exists created_at timestamptz not nul
 
 create index if not exists issue_photos_issue_id_idx on issue_photos (issue_id);
 create index if not exists issue_photos_created_at_idx on issue_photos (created_at);
+
+-- ---------------------------------------------------------------------------
+-- issue_notifications: a secure audit trail of ticket notifications prepared
+-- for WhatsApp delivery or follow-up.
+-- ---------------------------------------------------------------------------
+create table if not exists issue_notifications (
+  id bigint generated always as identity primary key,
+  issue_id bigint not null references issues (id) on delete cascade,
+  event_type text not null,
+  recipient_type text not null,
+  recipient_label text not null,
+  message text not null,
+  ticket_url text not null,
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+alter table issue_notifications add column if not exists issue_id bigint references issues (id) on delete cascade;
+alter table issue_notifications add column if not exists event_type text;
+alter table issue_notifications add column if not exists recipient_type text;
+alter table issue_notifications add column if not exists recipient_label text;
+alter table issue_notifications add column if not exists message text;
+alter table issue_notifications add column if not exists ticket_url text;
+alter table issue_notifications add column if not exists created_by uuid references auth.users (id) on delete set null;
+alter table issue_notifications add column if not exists created_at timestamptz not null default now();
+
+alter table issue_notifications drop constraint if exists issue_notifications_event_type_check;
+alter table issue_notifications add constraint issue_notifications_event_type_check
+  check (event_type in ('created', 'assigned', 'follow_up', 'resolved'));
+
+create index if not exists issue_notifications_issue_id_idx on issue_notifications (issue_id, created_at desc);
 
 -- ---------------------------------------------------------------------------
 -- service_contacts: maintained by admin/superadmin, readable by all signed-in
@@ -139,6 +186,11 @@ alter table service_contacts add column if not exists updated_at timestamptz not
 create unique index if not exists service_contacts_seed_key_idx on service_contacts (seed_key);
 create index if not exists service_contacts_service_idx on service_contacts (service, sort_order);
 
+alter table issues drop constraint if exists issues_assigned_service_contact_id_fkey;
+alter table issues
+  add constraint issues_assigned_service_contact_id_fkey
+  foreign key (assigned_service_contact_id) references service_contacts (id) on delete set null;
+
 -- ---------------------------------------------------------------------------
 -- helper functions for RLS policies
 -- ---------------------------------------------------------------------------
@@ -164,6 +216,19 @@ as $$
   select villa_number from profiles where id = auth.uid()
 $$;
 
+create or replace function current_profile_label()
+returns text
+language sql
+stable
+security definer
+set search_path = public
+set row_security = off
+as $$
+  select coalesce(display_name, villa_number, username, 'Account')
+  from profiles
+  where id = auth.uid()
+$$;
+
 create or replace function can_update_issue(issue_reported_by_villa text)
 returns boolean
 language sql
@@ -174,7 +239,6 @@ set row_security = off
 as $$
   select
     current_profile_role() in ('admin', 'superadmin')
-    or issue_reported_by_villa = current_profile_villa()
 $$;
 
 create or replace function can_view_issue_photo(target_issue_id bigint)
@@ -216,6 +280,315 @@ begin
 end;
 $$;
 
+create or replace function assign_issue(target_issue_id bigint, target_contact_id bigint)
+returns issues
+language plpgsql
+security definer
+set search_path = public
+set row_security = off
+as $$
+declare
+  actor_role text := current_profile_role();
+  actor_label text := current_profile_label();
+  target_issue issues%rowtype;
+  selected_contact service_contacts%rowtype;
+  expected_service text;
+  normalized_expected_service text;
+  normalized_contact_service text;
+  updated_issue issues%rowtype;
+begin
+  if actor_role not in ('admin', 'superadmin') then
+    raise exception 'Only admins can assign a fixer';
+  end if;
+
+  select * into target_issue
+  from issues
+  where id = target_issue_id
+    and status <> 'resolved';
+
+  if target_issue.id is null then
+    raise exception 'Issue not found or already resolved';
+  end if;
+
+  select * into selected_contact
+  from service_contacts
+  where id = target_contact_id;
+
+  if selected_contact.id is null then
+    raise exception 'Selected service contact was not found';
+  end if;
+
+  expected_service := case target_issue.category
+    when 'plumbing' then 'Plumber'
+    when 'electrical' then 'Electrician'
+    when 'pest' then 'Snake Catcher'
+    else null
+  end;
+
+  normalized_expected_service := lower(trim(regexp_replace(coalesce(expected_service, ''), '\s+', ' ', 'g')));
+  normalized_contact_service := lower(trim(regexp_replace(coalesce(selected_contact.service, ''), '\s+', ' ', 'g')));
+
+  if expected_service is not null
+    and normalized_contact_service <> normalized_expected_service
+    and position(normalized_expected_service in normalized_contact_service) <> 1
+    and position(normalized_contact_service in normalized_expected_service) <> 1 then
+    raise exception 'Selected contact does not match the issue type';
+  end if;
+
+  update issues
+  set
+    status = 'assigned',
+    assigned_service_contact_id = selected_contact.id,
+    assigned_service_contact_name = selected_contact.name,
+    assigned_by = actor_label,
+    assigned_at = now()
+  where id = target_issue_id
+  returning * into updated_issue;
+
+  if updated_issue.id is null then
+    raise exception 'Issue not found';
+  end if;
+
+  return updated_issue;
+end;
+$$;
+
+create or replace function follow_up_issue(target_issue_id bigint)
+returns issues
+language plpgsql
+security definer
+set search_path = public
+set row_security = off
+as $$
+declare
+  actor_role text := current_profile_role();
+  actor_villa text := current_profile_villa();
+  updated_issue issues%rowtype;
+begin
+  if actor_role not in ('admin', 'superadmin') then
+    update issues
+    set
+      follow_up_count = coalesce(follow_up_count, 0) + 1,
+      last_followed_up_at = now()
+    where id = target_issue_id
+      and reported_by_villa = actor_villa
+      and status <> 'resolved'
+    returning * into updated_issue;
+  else
+    update issues
+    set
+      follow_up_count = coalesce(follow_up_count, 0) + 1,
+      last_followed_up_at = now()
+    where id = target_issue_id
+      and status <> 'resolved'
+    returning * into updated_issue;
+  end if;
+
+  if updated_issue.id is null then
+    raise exception 'Issue not found or cannot be followed up';
+  end if;
+
+  return updated_issue;
+end;
+$$;
+
+create or replace function resolve_issue_workflow(target_issue_id bigint, resolution_note text default null, resolved_worker text default null)
+returns issues
+language plpgsql
+security definer
+set search_path = public
+set row_security = off
+as $$
+declare
+  actor_role text := current_profile_role();
+  actor_villa text := current_profile_villa();
+  actor_label text := current_profile_label();
+  updated_issue issues%rowtype;
+begin
+  if actor_role in ('admin', 'superadmin') then
+    update issues
+    set
+      status = 'resolved',
+      resolved_at = now(),
+      resolution_notes = nullif(trim(coalesce(resolution_note, '')), ''),
+      resolved_by = coalesce(nullif(trim(coalesce(resolved_worker, '')), ''), actor_label)
+    where id = target_issue_id
+    returning * into updated_issue;
+  else
+    update issues
+    set
+      status = 'resolved',
+      resolved_at = now(),
+      resolution_notes = nullif(trim(coalesce(resolution_note, '')), ''),
+      resolved_by = coalesce(nullif(trim(coalesce(resolved_worker, '')), ''), actor_label)
+    where id = target_issue_id
+      and reported_by_villa = actor_villa
+    returning * into updated_issue;
+  end if;
+
+  if updated_issue.id is null then
+    raise exception 'Issue not found or cannot be resolved';
+  end if;
+
+  return updated_issue;
+end;
+$$;
+
+create or replace function create_issue_notifications(target_issue_id bigint, target_event_type text, target_ticket_url text)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+set row_security = off
+as $$
+declare
+  actor_role text := current_profile_role();
+  actor_villa text := current_profile_villa();
+  actor_label text := current_profile_label();
+  target_issue issues%rowtype;
+  target_service text;
+  created_rows integer := 0;
+  notification_text text;
+  contact_row record;
+begin
+  select * into target_issue
+  from issues
+  where id = target_issue_id;
+
+  if target_issue.id is null then
+    raise exception 'Issue not found';
+  end if;
+
+  if target_event_type not in ('created', 'assigned', 'follow_up', 'resolved') then
+    raise exception 'Unsupported notification event type';
+  end if;
+
+  if target_event_type = 'created' and actor_role not in ('admin', 'superadmin') and target_issue.reported_by_villa <> actor_villa then
+    raise exception 'You cannot create notifications for this ticket';
+  end if;
+
+  if target_event_type = 'assigned' and actor_role not in ('admin', 'superadmin') then
+    raise exception 'Only admins can notify assignment';
+  end if;
+
+  if target_event_type = 'follow_up' and target_issue.reported_by_villa <> actor_villa and actor_role not in ('admin', 'superadmin') then
+    raise exception 'Only the resident or admin can follow up';
+  end if;
+
+  if target_event_type = 'resolved' and actor_role not in ('admin', 'superadmin') and target_issue.reported_by_villa <> actor_villa then
+    raise exception 'You cannot notify resolution for this ticket';
+  end if;
+
+  target_service := case target_issue.category
+    when 'plumbing' then 'Plumber'
+    when 'electrical' then 'Electrician'
+    when 'pest' then 'Snake Catcher'
+    else null
+  end;
+
+  notification_text := case target_event_type
+    when 'created' then format(
+      'New ticket %s.%sUrgency: %s.%sLocation: %s.%sReporter: %s.%sDetails: %s.%sOpen ticket: %s',
+      lpad(target_issue.id::text, 4, '0'),
+      E'\n',
+      initcap(target_issue.urgency),
+      E'\n',
+      target_issue.location,
+      E'\n',
+      target_issue.reporter_name,
+      E'\n',
+      target_issue.description,
+      E'\n',
+      target_ticket_url
+    )
+    when 'assigned' then format(
+      'Ticket %s has been assigned to %s.%sIssue type: %s.%sLocation: %s.%sOpen ticket: %s',
+      lpad(target_issue.id::text, 4, '0'),
+      coalesce(target_issue.assigned_service_contact_name, 'the selected fixer'),
+      E'\n',
+      initcap(target_issue.category),
+      E'\n',
+      target_issue.location,
+      E'\n',
+      target_ticket_url
+    )
+    when 'follow_up' then format(
+      'Resident follow-up for ticket %s.%sIssue type: %s.%sLocation: %s.%sDetails: %s.%sOpen ticket: %s',
+      lpad(target_issue.id::text, 4, '0'),
+      E'\n',
+      initcap(target_issue.category),
+      E'\n',
+      target_issue.location,
+      E'\n',
+      target_issue.description,
+      E'\n',
+      target_ticket_url
+    )
+    when 'resolved' then format(
+      'Ticket %s has been resolved by %s.%sIssue type: %s.%sLocation: %s.%sOpen ticket: %s',
+      lpad(target_issue.id::text, 4, '0'),
+      coalesce(target_issue.resolved_by, actor_label),
+      E'\n',
+      initcap(target_issue.category),
+      E'\n',
+      target_issue.location,
+      E'\n',
+      target_ticket_url
+    )
+    else null
+  end;
+
+  if target_event_type in ('created', 'follow_up', 'resolved') then
+    insert into issue_notifications (issue_id, event_type, recipient_type, recipient_label, message, ticket_url, created_by)
+    values (target_issue_id, target_event_type, 'facility_manager', 'Facility Manager', notification_text, target_ticket_url, auth.uid());
+    created_rows := created_rows + 1;
+  end if;
+
+  if target_event_type = 'assigned' then
+    insert into issue_notifications (issue_id, event_type, recipient_type, recipient_label, message, ticket_url, created_by)
+    values (target_issue_id, target_event_type, 'resident', target_issue.reporter_name, notification_text, target_ticket_url, auth.uid());
+    created_rows := created_rows + 1;
+  end if;
+
+  if target_event_type in ('created', 'follow_up') and target_service is not null then
+    for contact_row in
+      select role, name
+      from service_contacts
+      where service = target_service
+      order by sort_order asc, name asc
+    loop
+      insert into issue_notifications (issue_id, event_type, recipient_type, recipient_label, message, ticket_url, created_by)
+      values (
+        target_issue_id,
+        target_event_type,
+        'service_provider',
+        concat_ws(' - ', contact_row.role, contact_row.name),
+        notification_text,
+        target_ticket_url,
+        auth.uid()
+      );
+      created_rows := created_rows + 1;
+    end loop;
+  end if;
+
+  if target_event_type = 'assigned' and target_issue.assigned_service_contact_name is not null then
+    insert into issue_notifications (issue_id, event_type, recipient_type, recipient_label, message, ticket_url, created_by)
+    values (
+      target_issue_id,
+      target_event_type,
+      'assigned_fixer',
+      target_issue.assigned_service_contact_name,
+      notification_text,
+      target_ticket_url,
+      auth.uid()
+    );
+    created_rows := created_rows + 1;
+  end if;
+
+  return created_rows;
+end;
+$$;
+
 create or replace function admin_clear_issues()
 returns void
 language plpgsql
@@ -249,6 +622,7 @@ alter table profiles enable row level security;
 alter table residents enable row level security;
 alter table issues enable row level security;
 alter table issue_photos enable row level security;
+alter table issue_notifications enable row level security;
 alter table service_contacts enable row level security;
 
 drop policy if exists "A villa can read its own profile" on profiles;
@@ -268,7 +642,9 @@ drop policy if exists "Any signed-in account can read issues" on issues;
 drop policy if exists "Any signed-in account can raise an issue" on issues;
 drop policy if exists "Any signed-in account can update an issue" on issues;
 drop policy if exists "Any signed-in account can read issue photos" on issue_photos;
+drop policy if exists "Authorized users can read issue photos" on issue_photos;
 drop policy if exists "Any signed-in account can add issue photos" on issue_photos;
+drop policy if exists "A resident or admin can read issue notifications" on issue_notifications;
 drop policy if exists "Any signed-in account can read service contacts" on service_contacts;
 drop policy if exists "Admins can edit service contacts" on service_contacts;
 
@@ -320,6 +696,18 @@ create policy "Any signed-in account can add issue photos"
   on issue_photos for insert
   with check (auth.uid() is not null);
 
+create policy "A resident or admin can read issue notifications"
+  on issue_notifications for select
+  using (
+    current_profile_role() in ('admin', 'superadmin')
+    or exists (
+      select 1
+      from issues
+      where issues.id = issue_notifications.issue_id
+        and issues.reported_by_villa = current_profile_villa()
+    )
+  );
+
 create policy "Any signed-in account can read service contacts"
   on service_contacts for select
   using (auth.uid() is not null);
@@ -332,6 +720,11 @@ create policy "Admins can edit service contacts"
 revoke select (reporter_phone, issue_photo_urls) on public.issues from public;
 revoke select (reporter_phone, issue_photo_urls) on public.issues from anon;
 revoke select (reporter_phone, issue_photo_urls) on public.issues from authenticated;
+
+grant execute on function assign_issue(bigint, bigint) to authenticated;
+grant execute on function follow_up_issue(bigint) to authenticated;
+grant execute on function resolve_issue_workflow(bigint, text, text) to authenticated;
+grant execute on function create_issue_notifications(bigint, text, text) to authenticated;
 
 -- Enable realtime so the app updates live across everyone's phones
 do $$
